@@ -47,12 +47,12 @@ export async function sendOutreachEmail(payload: SendEmailPayload): Promise<Send
   }
 
   try {
-    const cleanFrom = payload.from || 'Modesend <onboarding@resend.dev>'
+    const cleanFrom = payload.from || 'Mode Digital Creations <info@modecbt.com>'
 
     const response = await resend.emails.send({
       from: cleanFrom,
       to: payload.to,
-      replyTo: payload.replyTo || undefined,
+      replyTo: payload.replyTo || 'info@modecbt.com',
       subject: payload.subject,
       html: payload.bodyHtml,
       text: payload.bodyText || undefined,

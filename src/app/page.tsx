@@ -89,7 +89,7 @@ export default function ModesendDashboard() {
 
   // Personalization & Offer State
   const [companyOffer, setCompanyOffer] = useState(
-    'We build modern digital websites, custom school management portals, and automated tuition payment systems for leading educational institutions.'
+    'We deploy the MODECBT Portal (automated Computer-Based Testing engine for entrance exams & termly assessments) and custom School Management Systems (automated tuition fee collection, instant result computation, and parent-student dashboards) for leading educational institutions.'
   )
   const [activeLeadForPreview, setActiveLeadForPreview] = useState<BusinessLead | null>(null)
   const [previewSubject, setPreviewSubject] = useState('')
@@ -102,8 +102,8 @@ export default function ModesendDashboard() {
     if (typeof window !== 'undefined') return (getCurrentUser() || DEFAULT_ACCOUNTS[0]).fullName.split(' (')[0]
     return 'Mode Digital Creations Team'
   })
-  const [senderEmail, setSenderEmail] = useState('Mode Digital Creations <onboarding@resend.dev>')
-  const [replyToEmail, setReplyToEmail] = useState('info@modedigitalcreations.ng')
+  const [senderEmail, setSenderEmail] = useState('Mode Digital Creations <info@modecbt.com>')
+  const [replyToEmail, setReplyToEmail] = useState('info@modecbt.com')
   const [isSending, setIsSending] = useState(false)
   const [sendSuccessMessage, setSendSuccessMessage] = useState<string | null>(null)
   const [testRecipient, setTestRecipient] = useState('')

@@ -11,7 +11,7 @@ export const COMPANY_SIGNATURE = `Best regards,
 {senderName}
 Mode Digital Creations Outreach Team
 Tel: 08065180018
-Email: info@modedigitalcreations.ng`
+Email: info@modecbt.com`
 
 type IndustrySector = 'schools' | 'hotels' | 'hospitals' | 'law' | 'realestate' | 'tech' | 'logistics' | 'general'
 
@@ -21,7 +21,7 @@ type IndustrySector = 'schools' | 'hotels' | 'hospitals' | 'law' | 'realestate' 
 export function detectIndustrySector(category: string, name: string, description: string = ''): IndustrySector {
   const combined = `${category} ${name} ${description}`.toLowerCase()
 
-  if (/(school|college|academy|secondary|primary|nursery|creche|education|university|polytechnic|institution|tuition|curriculum)/i.test(combined)) {
+  if (/(school|college|academy|secondary|primary|nursery|creche|education|university|polytechnic|institution|tuition|curriculum|grammar school)/i.test(combined)) {
     return 'schools'
   }
   if (/(hotel|suites|resort|hospitality|lodge|guest house|inn|motel|apartments|bed and breakfast)/i.test(combined)) {
@@ -49,13 +49,13 @@ export function detectIndustrySector(category: string, name: string, description
  * Returns dynamic sector-tailored value proposition and pitch
  */
 export function getSectorPitch(sector: IndustrySector, locCity: string, customOffer?: string): string {
-  if (customOffer && customOffer.trim().length > 10 && !customOffer.includes('school management portals')) {
+  if (customOffer && customOffer.trim().length > 15 && !customOffer.includes('custom school management portals') && !customOffer.includes('MODECBT')) {
     return customOffer.trim()
   }
 
   switch (sector) {
     case 'schools':
-      return `We build modern digital school websites, custom student & parent portals, and automated tuition payment systems for leading educational institutions in ${locCity}. Our solutions eliminate manual fee tracking, streamline admissions, and provide parents with instant digital receipts on their phones.`
+      return `We deploy the MODECBT Portal (an automated Computer-Based Testing & examination engine for entrance exams and termly assessments) alongside a custom School Management System for leading schools in ${locCity}. Our platform automates online tuition fee collections, eliminates manual payment reconciliation, computes termly student result sheets instantly, and gives parents a seamless mobile portal.`
 
     case 'hotels':
       return `We build direct 0%-commission room reservation engines, 360° virtual room showcases, and automated mobile guest check-in systems for premier hotels in ${locCity}. This allows your guests to book and pay directly from their phones while eliminating high 15–20% OTA third-party commission fees.`
@@ -87,7 +87,7 @@ function getCatchySubject(shortName: string, sector: IndustrySector, stepNumber:
   if (stepNumber === 1) {
     switch (sector) {
       case 'schools':
-        return `Quick question regarding ${shortName}'s student & tuition portal`
+        return `Quick question regarding ${shortName}'s MODECBT Portal & School System`
       case 'hotels':
         return `Zero-commission direct booking idea for ${shortName}`
       case 'hospitals':
@@ -104,7 +104,7 @@ function getCatchySubject(shortName: string, sector: IndustrySector, stepNumber:
   } else if (stepNumber === 2) {
     switch (sector) {
       case 'schools':
-        return `Re: Streamlining admissions & fee collection at ${shortName}`
+        return `Re: MODECBT Examination & Fee Management at ${shortName}`
       case 'hotels':
         return `Re: Direct room reservations at ${shortName}`
       case 'hospitals':
@@ -115,7 +115,7 @@ function getCatchySubject(shortName: string, sector: IndustrySector, stepNumber:
         return `Re: Quick thought for ${shortName} this week`
     }
   } else {
-    return `Final follow-up: Case study for ${shortName}`
+    return `Final check-in: MODECBT & digital systems for ${shortName}`
   }
 }
 
@@ -138,14 +138,14 @@ export async function generatePersonalizedEmail(
 ${senderName}
 Mode Digital Creations Outreach Team
 Tel: 08065180018
-Email: info@modedigitalcreations.ng`
+Email: info@modecbt.com`
 
   const geminiApiKey = process.env.GEMINI_API_KEY || process.env.NEXT_PUBLIC_GEMINI_API_KEY
 
   if (geminiApiKey) {
     try {
       const prompt = `
-You are an expert B2B cold email copywriter for Mode Digital Creations. Write a highly personalized, compelling, scroll-stopping outreach email.
+You are an expert B2B cold outreach copywriter for Mode Digital Creations. Write a highly personalized, compelling, scroll-stopping outreach email.
 
 Target Prospect Details:
 - Business Name: ${lead.name}
@@ -153,21 +153,26 @@ Target Prospect Details:
 - Location: ${lead.location}
 - Background: ${lead.enrichedData?.description || 'Reputable organization in ' + lead.location}
 
-Our Value Proposition & Pitch for this Sector:
+Value Proposition for ${sector.toUpperCase()}:
 "${sectorPitch}"
+${
+  sector === 'schools'
+    ? 'NOTE: For schools, emphasize the MODECBT Portal (Computer-Based Testing, entrance exam automation, instant grading) and the School Management System (online tuition collection, student report computation, parent portal).'
+    : ''
+}
 
 Sequence Step: Step ${stepNumber} (1 = Initial Value Hook, 2 = 3-Day Polite Follow-up, 3 = Case Study / Low friction CTA)
 Sender Name: ${senderName}
 
-Required Signature (You MUST include this exact signature at the end):
+Required Signature (You MUST append this exact signature):
 ${signatureText}
 
 Guidelines:
-1. Subject Line: Catchy, scroll-stopping, high open rate, customized with prospect name (${shortName}) and their sector (${sector}). Avoid spam words.
-2. Opening: Mention ${shortName} directly and acknowledge their reputation in ${locCity}.
-3. The Sector-Specific Solution: Speak directly to the operational bottlenecks of a ${sector} business (e.g. tuition automation/portals for schools, 0% commission direct booking for hotels, patient booking for hospitals, client vaults for law firms).
-4. Low Friction CTA: e.g. "Would you be open to a quick 3-minute video overview or brief demo this week?"
-5. Permanent Signature: Include the exact signature provided above with Tel: 08065180018 and Email: info@modedigitalcreations.ng.
+1. Subject Line: Catchy, scroll-stopping, high open rate, customized with prospect name (${shortName}) and their sector focus (${sector === 'schools' ? 'MODECBT & School Portal' : sector}).
+2. Opening: Greet them with their name (${shortName}) and acknowledge their leading status in ${locCity}.
+3. The Pitch: Focus sharply on ${sector === 'schools' ? 'MODECBT Portal & School Management System' : sectorPitch}.
+4. Low Friction CTA: e.g. "Would you be open to a quick 3-minute demo or brief video walkthrough this week?"
+5. Permanent Signature: Include the exact signature provided above with Tel: 08065180018 and Email: info@modecbt.com.
 6. Tone: Executive, concise, warm, professional (under 130 words).
 
 Respond ONLY with valid JSON:
@@ -194,9 +199,8 @@ Respond ONLY with valid JSON:
         if (textContent) {
           const parsed = JSON.parse(textContent)
           if (parsed.subject && parsed.bodyText) {
-            // Ensure permanent company contact info is appended if omitted by model
             let fullBody = parsed.bodyText.trim()
-            if (!fullBody.includes('08065180018') || !fullBody.includes('info@modedigitalcreations.ng')) {
+            if (!fullBody.includes('08065180018') || !fullBody.includes('info@modecbt.com')) {
               fullBody = `${fullBody}\n\n${signatureText}`
             }
             return {
@@ -208,7 +212,7 @@ Respond ONLY with valid JSON:
         }
       }
     } catch {
-      // Fall through to algorithmic template engine
+      // Fall through to algorithmic engine
     }
   }
 
@@ -235,13 +239,28 @@ function generateAlgorithmicEmail(
 ${senderName}
 Mode Digital Creations Outreach Team
 Tel: 08065180018
-Email: info@modedigitalcreations.ng`
+Email: info@modecbt.com`
 
   const subject = getCatchySubject(shortName, sector, stepNumber)
   let bodyText = ''
 
   if (stepNumber === 1) {
-    bodyText = `Hi ${shortName} Team,
+    if (sector === 'schools') {
+      bodyText = `Hi ${shortName} Team,
+
+I came across ${shortName} while reviewing leading educational institutions in ${locCity} and wanted to reach out directly.
+
+We deploy the MODECBT Portal alongside our custom School Management System for top schools in Nigeria. Our platform provides:
+• MODECBT Exam Engine: Automated Computer-Based Testing for entrance exams, mock assessments, and termly tests with instant grading.
+• School Management System: Automated tuition & school fees payment processing, instant SMS/Email receipts, student result computation, and parent-student dashboards.
+
+Given your strong reputation in ${locCity}, I believe this could significantly reduce administrative workload for your teachers and administrative staff.
+
+Would you be open to a quick 3-minute demo or brief walkthrough this week?
+
+${signature}`
+    } else {
+      bodyText = `Hi ${shortName} Team,
 
 I came across ${shortName} while reviewing leading organizations in ${locCity} and wanted to reach out directly.
 
@@ -252,8 +271,22 @@ We recently helped similar organizations in your sector eliminate administrative
 Would you be open to a quick 3-minute chat or a brief walkthrough this week?
 
 ${signature}`
+    }
   } else if (stepNumber === 2) {
-    bodyText = `Hi ${shortName} Team,
+    if (sector === 'schools') {
+      bodyText = `Hi ${shortName} Team,
+
+Following up on my previous note regarding ${shortName}.
+
+I know how busy academic terms can get, so I wanted to share a quick overview of how our MODECBT Portal and School Management System directly support school administrators:
+
+${sectorPitch}
+
+If this sounds relevant for ${shortName}, what does your calendar look like for a brief 5-minute call on Thursday or Friday?
+
+${signature}`
+    } else {
+      bodyText = `Hi ${shortName} Team,
 
 Following up on my previous note regarding ${shortName}.
 
@@ -264,6 +297,7 @@ ${sectorPitch}
 If this sounds relevant, what does your calendar look like for a brief 5-minute call on Thursday or Friday?
 
 ${signature}`
+    }
   } else {
     bodyText = `Hi ${shortName} Team,
 
@@ -272,7 +306,7 @@ I wanted to send one last quick note in case my earlier messages were missed.
 We would love the opportunity to share a customized case study showing how we deliver:
 "${sectorPitch}"
 
-If the timing is not right, no problem at all. Should your team ever need support with modern digital systems in ${locCity}, feel free to keep us in mind!
+If the timing is not right, no problem at all. Should your team ever need support with modern digital systems or CBT exam portals in ${locCity}, feel free to keep us in mind!
 
 ${signature}`
   }
@@ -304,12 +338,16 @@ export function formatHtmlEmail(bodyText: string): string {
 
       // Make email addresses and phone numbers clickable in signature
       formatted = formatted.replace(
+        /info@modecbt\.com/g,
+        '<a href="mailto:info@modecbt.com" style="color: #2563eb; text-decoration: none; font-weight: 600;">info@modecbt.com</a>'
+      )
+      formatted = formatted.replace(
         /info@modedigitalcreations\.ng/g,
-        '<a href="mailto:info@modedigitalcreations.ng" style="color: #2563eb; text-decoration: none; font-weight: 500;">info@modedigitalcreations.ng</a>'
+        '<a href="mailto:info@modedigitalcreations.ng" style="color: #2563eb; text-decoration: none; font-weight: 600;">info@modedigitalcreations.ng</a>'
       )
       formatted = formatted.replace(
         /08065180018/g,
-        '<a href="tel:08065180018" style="color: #2563eb; text-decoration: none; font-weight: 500;">08065180018</a>'
+        '<a href="tel:08065180018" style="color: #2563eb; text-decoration: none; font-weight: 600;">08065180018</a>'
       )
 
       return `<p style="margin: 0 0 16px 0; font-size: 15px; line-height: 1.65; color: #1e293b; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">${formatted}</p>`

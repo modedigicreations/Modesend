@@ -8,9 +8,9 @@ const sendCampaignSchema = z.object({
   campaignId: z.string().optional().default('default_campaign'),
   leads: z.array(z.custom<BusinessLead>()).min(1, 'At least one lead is required'),
   companyOffer: z.string().min(1, 'Company offer is required'),
-  senderName: z.string().optional().default('Modewebhost Team'),
-  senderEmail: z.string().optional().default('Modesend <onboarding@resend.dev>'),
-  replyToEmail: z.string().optional(),
+  senderName: z.string().optional().default('Mode Digital Creations Team'),
+  senderEmail: z.string().optional().default('Mode Digital Creations <info@modecbt.com>'),
+  replyToEmail: z.string().optional().default('info@modecbt.com'),
 })
 
 export async function POST(req: NextRequest) {
