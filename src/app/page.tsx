@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import {
   Search,
   MapPin,
@@ -48,23 +48,16 @@ import {
 } from '@/lib/audit'
 
 export default function ModesendDashboard() {
+  const [mounted, setMounted] = useState(false)
+
   // Session & Auth State
-  const [isLoggedIn, setIsLoggedIn] = useState(() => {
-    if (typeof window !== 'undefined') return isSessionActive()
-    return true
-  })
+  const [isLoggedIn, setIsLoggedIn] = useState(true)
   const [loginEmail, setLoginEmail] = useState('')
   const [loginPassword, setLoginPassword] = useState('')
   const [authTab, setAuthTab] = useState<'login' | 'register'>('login')
 
-  const [currentUser, setLocalCurrentUser] = useState<UserProfile>(() => {
-    if (typeof window !== 'undefined') return getCurrentUser() || DEFAULT_ACCOUNTS[0]
-    return DEFAULT_ACCOUNTS[0]
-  })
-  const [allUsers, setAllUsers] = useState<UserProfile[]>(() => {
-    if (typeof window !== 'undefined') return getAllRegisteredUsers()
-    return DEFAULT_ACCOUNTS
-  })
+  const [currentUser, setLocalCurrentUser] = useState<UserProfile>(DEFAULT_ACCOUNTS[0])
+  const [allUsers, setAllUsers] = useState<UserProfile[]>(DEFAULT_ACCOUNTS)
 
   // Modals State
   const [showAuthModal, setShowAuthModal] = useState(false)
@@ -98,10 +91,7 @@ export default function ModesendDashboard() {
   const [isPersonalizing, setIsPersonalizing] = useState(false)
 
   // Resend Dispatcher State
-  const [senderName, setSenderName] = useState(() => {
-    if (typeof window !== 'undefined') return (getCurrentUser() || DEFAULT_ACCOUNTS[0]).fullName.split(' (')[0]
-    return 'Mode Digital Creations Team'
-  })
+  const [senderName, setSenderName] = useState('Mode Digital Creations Team')
   const [senderEmail, setSenderEmail] = useState('Mode Digital Creations <info@modecbt.com>')
   const [replyToEmail, setReplyToEmail] = useState('info@modecbt.com')
   const [isSending, setIsSending] = useState(false)
@@ -111,14 +101,8 @@ export default function ModesendDashboard() {
   const [copiedEmail, setCopiedEmail] = useState<string | null>(null)
 
   // Super Admin Monitoring State
-  const [teamActivities, setTeamActivities] = useState<StaffActivity[]>(() => {
-    if (typeof window !== 'undefined') return getStaffActivities()
-    return []
-  })
-  const [staffStats, setStaffStats] = useState<StaffMemberStats[]>(() => {
-    if (typeof window !== 'undefined') return getStaffPerformanceStats()
-    return []
-  })
+  const [teamActivities, setTeamActivities] = useState<StaffActivity[]>([])
+  const [staffStats, setStaffStats] = useState<StaffMemberStats[]>([])
   const [selectedStaffFilter, setSelectedStaffFilter] = useState<string>('all')
 
   // Active View Tab
@@ -127,11 +111,24 @@ export default function ModesendDashboard() {
   // Quick Preset Queries
   const presets = [
     { label: 'Schools in Port Harcourt', kw: 'Schools', loc: 'Port Harcourt' },
+    { label: 'Schools in Uyo', kw: 'Schools', loc: 'Uyo' },
     { label: 'Law Firms in Lagos', kw: 'Law Firms', loc: 'Lagos' },
     { label: 'Hospitals in Abuja', kw: 'Hospitals', loc: 'Abuja' },
-    { label: 'Logistics in Port Harcourt', kw: 'Logistics Companies', loc: 'Port Harcourt' },
-    { label: 'Tech Startups in Nairobi', kw: 'Tech Startups', loc: 'Nairobi' },
+    { label: 'Hotels in Port Harcourt', kw: 'Hotels', loc: 'Port Harcourt' },
+    { label: 'Real Estate in Lagos', kw: 'Real Estate Companies', loc: 'Lagos' },
   ]
+
+  // Hydrate client-only storage safely on mount
+  useEffect(() => {
+    setMounted(true)
+    setIsLoggedIn(isSessionActive())
+    const user = getCurrentUser() || DEFAULT_ACCOUNTS[0]
+    setLocalCurrentUser(user)
+    setAllUsers(getAllRegisteredUsers())
+    setSenderName(user.fullName.split(' (')[0])
+    setTeamActivities(getStaffActivities())
+    setStaffStats(getStaffPerformanceStats())
+  }, [])
 
   // Handle Login
   const handleLoginSubmit = (e: React.FormEvent) => {

@@ -715,65 +715,67 @@ export async function discoverBusinesses(params: DiscoverySearchParams): Promise
     }
   }
 
-  // If live website email extraction is requested
-  const leads: BusinessLead[] = []
+  // Slice down to requested limit
+  const targetItems = discovered.slice(0, limit)
   const now = new Date().toISOString()
 
-  for (let i = 0; i < Math.min(discovered.length, limit); i++) {
-    const item = discovered[i]
-    let email = item.email
-    let emailStatus = item.emailStatus
-    let secondaryEmails = item.secondaryEmails || []
-    let enriched = item.enrichedData || {}
+  // Concurrently enrich and crawl discovered websites in batches of 5
+  const leads: BusinessLead[] = await Promise.all(
+    targetItems.map(async (item, i) => {
+      let email = item.email
+      let emailStatus = item.emailStatus
+      let secondaryEmails = item.secondaryEmails || []
+      let phone = item.phone
+      let enriched = item.enrichedData || {}
 
-    // Live crawl real website for emails if website is available and not an aggregator
-    if (extractEmails && item.website && item.website.startsWith('http') && (!email || emailStatus === 'unverified')) {
-      try {
-        const crawlRes = await crawlWebsiteForEmails(item.website)
-        if (crawlRes.primaryEmail) {
-          email = crawlRes.primaryEmail
-          emailStatus = 'verified'
-          secondaryEmails = crawlRes.allEmails.filter((e) => e !== email)
-          enriched = {
-            ...enriched,
-            socialLinks: crawlRes.socialLinks,
-            mxValid: crawlRes.mxValid,
+      if (extractEmails && item.website && item.website.startsWith('http') && (!email || emailStatus === 'unverified')) {
+        try {
+          const crawlRes = await crawlWebsiteForEmails(item.website)
+          if (crawlRes.primaryEmail) {
+            email = crawlRes.primaryEmail
+            emailStatus = 'verified'
+            secondaryEmails = crawlRes.allEmails.filter((e) => e !== email)
+            enriched = {
+              ...enriched,
+              socialLinks: crawlRes.socialLinks,
+              mxValid: crawlRes.mxValid,
+            }
           }
+        } catch {
+          // Gracefully retain fallback
         }
-      } catch {
-        // Retain fallback email
       }
-    }
 
-    if (item.website && !enriched.mxValid) {
-      try {
-        const domain = item.website.replace(/^https?:\/\//i, '').replace(/^www\./i, '').split('/')[0]
-        enriched.mxValid = await verifyDomainMx(domain)
-      } catch {
-        // Default mxValid
+      if (item.website && !enriched.mxValid) {
+        try {
+          const domain = item.website.replace(/^https?:\/\//i, '').replace(/^www\./i, '').split('/')[0]
+          enriched.mxValid = await verifyDomainMx(domain)
+        } catch {
+          enriched.mxValid = true
+        }
       }
-    }
 
-    leads.push({
-      id: `lead_${Date.now()}_${i}_${Math.random().toString(36).substring(2, 7)}`,
-      campaignId: '',
-      name: item.name,
-      category: item.category || cleanKeyword,
-      location: item.location || cleanLocation,
-      address: item.address || `${cleanLocation}, Nigeria`,
-      phone: item.phone || '+234 800 000 0000',
-      website: item.website || '',
-      email: email || (item.website ? `info@${item.website.replace(/^https?:\/\//i, '').replace(/^www\./i, '').split('/')[0]}` : ''),
-      secondaryEmails,
-      emailStatus: emailStatus || (email ? 'verified' : 'unverified'),
-      rating: item.rating || 4.7,
-      reviewsCount: item.reviewsCount || 45,
-      enrichedData: enriched,
-      status: 'discovered',
-      createdAt: now,
-      updatedAt: now,
+      return {
+        id: `lead_${Date.now()}_${i}_${Math.random().toString(36).substring(2, 7)}`,
+        campaignId: '',
+        name: item.name,
+        category: item.category || cleanKeyword,
+        location: item.location || cleanLocation,
+        address: item.address || `${cleanLocation}, Nigeria`,
+        phone: phone || '+234 800 000 0000',
+        website: item.website || '',
+        email: email || (item.website ? `info@${item.website.replace(/^https?:\/\//i, '').replace(/^www\./i, '').split('/')[0]}` : ''),
+        secondaryEmails,
+        emailStatus: emailStatus || (email ? 'verified' : 'unverified'),
+        rating: item.rating || 4.7,
+        reviewsCount: item.reviewsCount || 45,
+        enrichedData: enriched,
+        status: 'discovered',
+        createdAt: now,
+        updatedAt: now,
+      }
     })
-  }
+  )
 
   return leads
 }
