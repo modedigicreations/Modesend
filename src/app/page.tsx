@@ -24,6 +24,10 @@ import {
   UserPlus,
   Activity,
   Sliders,
+  LogOut,
+  Edit2,
+  Trash2,
+  Lock,
 } from 'lucide-react'
 import { BusinessLead, UserProfile, StaffActivity, StaffMemberStats } from '@/types'
 import {
@@ -31,6 +35,10 @@ import {
   setCurrentUser,
   getAllRegisteredUsers,
   registerNewUser,
+  updateUserProfile,
+  deleteUserAccount,
+  logoutCurrentUser,
+  isSessionActive,
   DEFAULT_ACCOUNTS,
 } from '@/lib/auth'
 import {
@@ -40,17 +48,34 @@ import {
 } from '@/lib/audit'
 
 export default function ModesendDashboard() {
-  // Authentication & Role State
+  // Session & Auth State
+  const [isLoggedIn, setIsLoggedIn] = useState(() => {
+    if (typeof window !== 'undefined') return isSessionActive()
+    return true
+  })
+  const [loginEmail, setLoginEmail] = useState('')
+  const [loginPassword, setLoginPassword] = useState('')
+  const [authTab, setAuthTab] = useState<'login' | 'register'>('login')
+
   const [currentUser, setLocalCurrentUser] = useState<UserProfile>(() => {
-    if (typeof window !== 'undefined') return getCurrentUser()
+    if (typeof window !== 'undefined') return getCurrentUser() || DEFAULT_ACCOUNTS[0]
     return DEFAULT_ACCOUNTS[0]
   })
   const [allUsers, setAllUsers] = useState<UserProfile[]>(() => {
     if (typeof window !== 'undefined') return getAllRegisteredUsers()
     return DEFAULT_ACCOUNTS
   })
+
+  // Modals State
   const [showAuthModal, setShowAuthModal] = useState(false)
   const [showNewStaffModal, setShowNewStaffModal] = useState(false)
+  const [showEditProfileModal, setShowEditProfileModal] = useState(false)
+  const [userToEdit, setUserToEdit] = useState<UserProfile | null>(null)
+  const [editName, setEditName] = useState('')
+  const [editEmail, setEditEmail] = useState('')
+  const [editRole, setEditRole] = useState<'staff' | 'super_admin'>('staff')
+
+  // New Staff Form State
   const [newStaffName, setNewStaffName] = useState('')
   const [newStaffEmail, setNewStaffEmail] = useState('')
   const [newStaffRole, setNewStaffRole] = useState<'staff' | 'super_admin'>('staff')
@@ -74,7 +99,7 @@ export default function ModesendDashboard() {
 
   // Resend Dispatcher State
   const [senderName, setSenderName] = useState(() => {
-    if (typeof window !== 'undefined') return getCurrentUser().fullName.split(' (')[0]
+    if (typeof window !== 'undefined') return (getCurrentUser() || DEFAULT_ACCOUNTS[0]).fullName.split(' (')[0]
     return 'Modewebhost Team'
   })
   const [senderEmail, setSenderEmail] = useState('Modesend <onboarding@resend.dev>')
@@ -108,6 +133,39 @@ export default function ModesendDashboard() {
     { label: 'Tech Startups in Nairobi', kw: 'Tech Startups', loc: 'Nairobi' },
   ]
 
+  // Handle Login
+  const handleLoginSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!loginEmail) return
+
+    const users = getAllRegisteredUsers()
+    const matched = users.find((u) => u.email.toLowerCase() === loginEmail.trim().toLowerCase())
+
+    if (matched) {
+      setCurrentUser(matched)
+      setLocalCurrentUser(matched)
+      setSenderName(matched.fullName.split(' (')[0])
+      setIsLoggedIn(true)
+    } else {
+      // Auto-create or register account if new
+      const registered = registerNewUser(
+        loginEmail.split('@')[0].replace('.', ' '),
+        loginEmail.trim(),
+        'staff'
+      )
+      setAllUsers(getAllRegisteredUsers())
+      setLocalCurrentUser(registered)
+      setSenderName(registered.fullName.split(' (')[0])
+      setIsLoggedIn(true)
+    }
+  }
+
+  // Handle Logout
+  const handleLogout = () => {
+    logoutCurrentUser()
+    setIsLoggedIn(false)
+  }
+
   // Switch Active User Profile
   const handleSwitchUser = (user: UserProfile) => {
     setCurrentUser(user)
@@ -115,9 +173,71 @@ export default function ModesendDashboard() {
     setSenderName(user.fullName.split(' (')[0])
     setShowAuthModal(false)
 
-    // Refresh audit stats
     setTeamActivities(getStaffActivities())
     setStaffStats(getStaffPerformanceStats())
+  }
+
+  // Open Edit Profile Modal
+  const handleOpenEditModal = (user: UserProfile) => {
+    setUserToEdit(user)
+    setEditName(user.fullName)
+    setEditEmail(user.email)
+    setEditRole(user.role)
+    setShowEditProfileModal(true)
+  }
+
+  // Save Profile Edit
+  const handleSaveProfileEdit = (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!userToEdit || !editName || !editEmail) return
+
+    const updated = updateUserProfile(userToEdit.id, {
+      fullName: editName,
+      email: editEmail,
+      role: editRole,
+    })
+
+    if (updated) {
+      const updatedUsers = getAllRegisteredUsers()
+      setAllUsers(updatedUsers)
+
+      if (currentUser.id === updated.id) {
+        setLocalCurrentUser(updated)
+        setSenderName(updated.fullName.split(' (')[0])
+      }
+
+      logStaffActivity(
+        currentUser,
+        'login',
+        `Updated account profile for ${updated.fullName} (${updated.email})`
+      )
+
+      setTeamActivities(getStaffActivities())
+      setStaffStats(getStaffPerformanceStats())
+    }
+
+    setShowEditProfileModal(false)
+    setUserToEdit(null)
+  }
+
+  // Delete Staff Account
+  const handleDeleteStaffAccount = (user: UserProfile) => {
+    if (confirm(`Are you sure you want to delete the account for ${user.fullName} (${user.email})?`)) {
+      const { remainingUsers, nextActive } = deleteUserAccount(user.id)
+      setAllUsers(remainingUsers)
+      setLocalCurrentUser(nextActive)
+      setCurrentUser(nextActive)
+      setSenderName(nextActive.fullName.split(' (')[0])
+
+      logStaffActivity(
+        currentUser,
+        'login',
+        `Removed staff account: ${user.fullName} (${user.email})`
+      )
+
+      setTeamActivities(getStaffActivities())
+      setStaffStats(getStaffPerformanceStats())
+    }
   }
 
   // Register New Staff Member
@@ -164,7 +284,6 @@ export default function ModesendDashboard() {
       const data = await res.json()
       if (data.success && data.leads) {
         setLeads(data.leads)
-        // Select all verified leads by default
         const initialSelected = new Set<string>()
         data.leads.forEach((l: BusinessLead) => {
           if (l.email) initialSelected.add(l.id)
@@ -175,7 +294,6 @@ export default function ModesendDashboard() {
           generatePreviewForLead(data.leads[0], 1)
         }
 
-        // Log staff activity into audit trail
         logStaffActivity(
           currentUser,
           'search_leads',
@@ -232,7 +350,6 @@ export default function ModesendDashboard() {
         setPreviewSubject(data.email.subject)
         setPreviewBody(data.email.bodyText)
 
-        // Log personalization action
         logStaffActivity(
           currentUser,
           'personalize_copy',
@@ -328,7 +445,6 @@ export default function ModesendDashboard() {
         setSendSuccessMessage(
           `Successfully dispatched ${data.successfulSends} personalized outreach emails via Resend API!`
         )
-        // Update local lead statuses
         setLeads((prev) =>
           prev.map((lead) => {
             if (selectedLeadIds.has(lead.id)) {
@@ -366,9 +482,128 @@ export default function ModesendDashboard() {
   // Computed totals
   const totalVerified = leads.filter((l) => l.email && l.emailStatus === 'verified').length
   const totalSent = leads.filter((l) => l.status === 'sent').length
-
   const isSuperAdmin = currentUser.role === 'super_admin'
 
+  // ================= RENDER LOGIN PAGE IF NOT LOGGED IN =================
+  if (!isLoggedIn) {
+    return (
+      <div className="min-h-screen bg-[#f8fafc] flex flex-col justify-center items-center p-4 selection:bg-blue-600/20">
+        <div className="w-full max-w-md bg-white border border-slate-200 rounded-3xl p-8 shadow-xl shadow-blue-500/5 space-y-6">
+          <div className="text-center space-y-2">
+            <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-blue-700 to-indigo-600 p-0.5 shadow-md shadow-blue-500/20 mx-auto flex items-center justify-center">
+              <div className="w-full h-full bg-blue-600 rounded-[14px] flex items-center justify-center text-white">
+                <Zap className="w-6 h-6 fill-white/20" />
+              </div>
+            </div>
+            <h1 className="text-2xl font-bold tracking-tight text-slate-900">Modesend</h1>
+            <p className="text-xs text-slate-500 font-medium">
+              Enterprise Autonomous B2B Prospecting Engine
+            </p>
+          </div>
+
+          {/* Auth Tab Switcher */}
+          <div className="flex bg-slate-100 p-1 rounded-xl text-xs font-bold text-slate-600">
+            <button
+              onClick={() => setAuthTab('login')}
+              className={`flex-1 py-2 rounded-lg transition-all ${
+                authTab === 'login' ? 'bg-white text-blue-700 shadow-xs' : 'hover:text-slate-900'
+              }`}
+            >
+              Sign In
+            </button>
+            <button
+              onClick={() => setAuthTab('register')}
+              className={`flex-1 py-2 rounded-lg transition-all ${
+                authTab === 'register' ? 'bg-white text-blue-700 shadow-xs' : 'hover:text-slate-900'
+              }`}
+            >
+              Create Staff Account
+            </button>
+          </div>
+
+          <form onSubmit={handleLoginSubmit} className="space-y-4">
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">Company Email</label>
+              <div className="relative">
+                <Mail className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input
+                  type="email"
+                  required
+                  value={loginEmail}
+                  onChange={(e) => setLoginEmail(e.target.value)}
+                  placeholder="name@modewebhost.com"
+                  className="w-full bg-slate-50 border border-slate-300 rounded-xl pl-10 pr-4 py-3 text-xs text-slate-900 focus:outline-none focus:border-blue-600 font-medium"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">Password</label>
+              <div className="relative">
+                <Lock className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input
+                  type="password"
+                  value={loginPassword}
+                  onChange={(e) => setLoginPassword(e.target.value)}
+                  placeholder="••••••••"
+                  className="w-full bg-slate-50 border border-slate-300 rounded-xl pl-10 pr-4 py-3 text-xs text-slate-900 focus:outline-none focus:border-blue-600 font-medium"
+                />
+              </div>
+            </div>
+
+            <button
+              type="submit"
+              className="w-full py-3.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold rounded-xl text-xs flex items-center justify-center gap-2 shadow-md shadow-blue-500/20 transition-all"
+            >
+              {authTab === 'login' ? 'Sign In to Modesend' : 'Create & Access Account'}
+              <ChevronRight className="w-4 h-4" />
+            </button>
+          </form>
+
+          {/* Quick 1-Click Login List */}
+          <div className="pt-4 border-t border-slate-100 space-y-2">
+            <span className="text-[11px] font-semibold text-slate-400 block text-center uppercase tracking-wider">
+              Quick 1-Click Access
+            </span>
+            <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+              {allUsers.map((u) => (
+                <button
+                  key={u.id}
+                  type="button"
+                  onClick={() => {
+                    setCurrentUser(u)
+                    setLocalCurrentUser(u)
+                    setSenderName(u.fullName.split(' (')[0])
+                    setIsLoggedIn(true)
+                  }}
+                  className="w-full p-2.5 bg-slate-50 hover:bg-blue-50/80 border border-slate-200 hover:border-blue-300 rounded-xl text-left text-xs flex items-center justify-between transition-all group"
+                >
+                  <div className="flex items-center gap-2.5">
+                    <div className={`w-7 h-7 rounded-full flex items-center justify-center text-white font-bold text-[10px] ${
+                      u.role === 'super_admin' ? 'bg-indigo-600' : 'bg-blue-600'
+                    }`}>
+                      {u.fullName.charAt(0)}
+                    </div>
+                    <div>
+                      <div className="font-bold text-slate-900 group-hover:text-blue-700">{u.fullName}</div>
+                      <div className="text-[10px] text-slate-500">{u.email}</div>
+                    </div>
+                  </div>
+                  <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold uppercase ${
+                    u.role === 'super_admin' ? 'bg-indigo-100 text-indigo-700' : 'bg-blue-100 text-blue-700'
+                  }`}>
+                    {u.role === 'super_admin' ? 'Super Admin' : 'Staff'}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // ================= MAIN AUTHENTICATED DASHBOARD =================
   return (
     <div className="min-h-screen bg-[#f8fafc] text-slate-900 font-sans selection:bg-blue-600/20 selection:text-blue-900">
       {/* Top Navbar */}
@@ -431,21 +666,31 @@ export default function ModesendDashboard() {
                   <div className="font-semibold text-slate-900 leading-tight truncate max-w-[140px]">
                     {currentUser.fullName.split(' (')[0]}
                   </div>
-                  <div className="text-[10px] text-slate-500 font-medium">
-                    {isSuperAdmin ? 'Super Admin' : 'Staff Member'}
+                  <div className="text-[10px] text-slate-500 font-medium truncate max-w-[140px]">
+                    {currentUser.email}
                   </div>
                 </div>
                 <Sliders className="w-3.5 h-3.5 text-slate-400 ml-1" />
               </button>
 
-              {/* Add Staff Button */}
+              {/* Edit My Profile Button */}
               <button
                 type="button"
-                onClick={() => setShowNewStaffModal(true)}
-                className="p-2 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-xl text-xs transition-colors"
-                title="Create Staff Account"
+                onClick={() => handleOpenEditModal(currentUser)}
+                className="p-2 bg-slate-100 hover:bg-blue-50 text-slate-600 hover:text-blue-700 border border-slate-200 rounded-xl text-xs transition-colors"
+                title="Edit My Profile & Email"
               >
-                <UserPlus className="w-4 h-4" />
+                <Edit2 className="w-4 h-4" />
+              </button>
+
+              {/* Logout Button */}
+              <button
+                type="button"
+                onClick={handleLogout}
+                className="p-2 bg-slate-100 hover:bg-red-50 text-slate-600 hover:text-red-700 border border-slate-200 rounded-xl text-xs transition-colors"
+                title="Log Out"
+              >
+                <LogOut className="w-4 h-4" />
               </button>
             </div>
           </div>
@@ -527,7 +772,7 @@ export default function ModesendDashboard() {
                   Discover High-Intent Prospects & Verified Emails
                 </h2>
                 <p className="text-xs text-slate-500 mt-1">
-                  Logged in as: <span className="font-semibold text-slate-800">{currentUser.fullName}</span> • Searches are logged for team reporting.
+                  Logged in as: <span className="font-semibold text-slate-800">{currentUser.fullName}</span> ({currentUser.email}) • Searches are automatically logged for team oversight.
                 </p>
               </div>
 
@@ -1038,14 +1283,24 @@ export default function ModesendDashboard() {
                   </p>
                 </div>
 
-                <button
-                  type="button"
-                  onClick={() => setShowNewStaffModal(true)}
-                  className="px-4 py-2.5 bg-blue-500 hover:bg-blue-400 text-white font-bold rounded-xl text-xs flex items-center gap-2 transition-colors shadow-sm shrink-0"
-                >
-                  <UserPlus className="w-4 h-4" />
-                  Onboard Staff Member
-                </button>
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => handleOpenEditModal(currentUser)}
+                    className="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-white font-bold rounded-xl text-xs flex items-center gap-2 transition-colors border border-slate-700"
+                  >
+                    <Edit2 className="w-4 h-4" />
+                    Edit Admin Details
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowNewStaffModal(true)}
+                    className="px-4 py-2.5 bg-blue-500 hover:bg-blue-400 text-white font-bold rounded-xl text-xs flex items-center gap-2 transition-colors shadow-sm"
+                  >
+                    <UserPlus className="w-4 h-4" />
+                    Onboard Staff Member
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -1082,15 +1337,15 @@ export default function ModesendDashboard() {
               </div>
             </div>
 
-            {/* Staff Members Breakdown Table */}
+            {/* Staff Members Breakdown Table with Edit & Delete */}
             <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm space-y-4">
               <div className="flex items-center justify-between">
                 <div>
                   <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
                     <Users className="w-4 h-4 text-blue-600" />
-                    Staff Performance & Workload
+                    Staff Accounts & Performance ({allUsers.length})
                   </h3>
-                  <p className="text-xs text-slate-500">Activity breakdown by team member</p>
+                  <p className="text-xs text-slate-500">Manage team accounts, edit emails, or remove demo users</p>
                 </div>
               </div>
 
@@ -1098,47 +1353,76 @@ export default function ModesendDashboard() {
                 <table className="w-full text-left text-xs">
                   <thead className="bg-slate-50 text-slate-600 font-bold border-y border-slate-200">
                     <tr>
-                      <th className="py-3 px-4">Staff Member</th>
+                      <th className="py-3 px-4">Account Holder</th>
                       <th className="py-3 px-4">Role</th>
                       <th className="py-3 px-4 text-center">Searches</th>
                       <th className="py-3 px-4 text-center">Leads Discovered</th>
                       <th className="py-3 px-4 text-center">Outreach Sent</th>
-                      <th className="py-3 px-4 text-right">Last Active</th>
+                      <th className="py-3 px-4 text-right">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {staffStats.map((staff) => (
-                      <tr key={staff.userId} className="hover:bg-slate-50/80 transition-colors">
-                        <td className="py-3.5 px-4 font-semibold text-slate-900">
-                          <div className="flex items-center gap-2.5">
-                            <div className={`w-7 h-7 rounded-full flex items-center justify-center text-white font-bold text-xs ${
-                              staff.role === 'super_admin' ? 'bg-indigo-600' : 'bg-blue-600'
+                    {allUsers.map((user) => {
+                      const stat = staffStats.find((s) => s.userId === user.id) || {
+                        totalSearches: 0,
+                        totalLeadsFound: 0,
+                        totalSent: 0,
+                      }
+                      return (
+                        <tr key={user.id} className="hover:bg-slate-50/80 transition-colors">
+                          <td className="py-3.5 px-4 font-semibold text-slate-900">
+                            <div className="flex items-center gap-2.5">
+                              <div className={`w-7 h-7 rounded-full flex items-center justify-center text-white font-bold text-xs ${
+                                user.role === 'super_admin' ? 'bg-indigo-600' : 'bg-blue-600'
+                              }`}>
+                                {user.fullName.charAt(0)}
+                              </div>
+                              <div>
+                                <div className="flex items-center gap-2">
+                                  <span>{user.fullName}</span>
+                                  {currentUser.id === user.id && (
+                                    <span className="text-[9px] bg-blue-100 text-blue-700 px-1.5 py-0.2 rounded font-bold">YOU</span>
+                                  )}
+                                </div>
+                                <div className="text-[11px] text-blue-700 font-medium">{user.email}</div>
+                              </div>
+                            </div>
+                          </td>
+                          <td className="py-3.5 px-4">
+                            <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${
+                              user.role === 'super_admin'
+                                ? 'bg-indigo-50 text-indigo-700 border border-indigo-200'
+                                : 'bg-blue-50 text-blue-700 border border-blue-200'
                             }`}>
-                              {staff.userName.charAt(0)}
+                              {user.role === 'super_admin' ? 'Super Admin' : 'Staff'}
+                            </span>
+                          </td>
+                          <td className="py-3.5 px-4 text-center font-bold text-slate-800">{stat.totalSearches}</td>
+                          <td className="py-3.5 px-4 text-center font-bold text-indigo-600">{stat.totalLeadsFound}</td>
+                          <td className="py-3.5 px-4 text-center font-bold text-emerald-600">{stat.totalSent}</td>
+                          <td className="py-3.5 px-4 text-right">
+                            <div className="flex items-center justify-end gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => handleOpenEditModal(user)}
+                                className="p-1.5 bg-slate-100 hover:bg-blue-50 text-slate-600 hover:text-blue-700 rounded-lg transition-colors"
+                                title="Edit Email / Name"
+                              >
+                                <Edit2 className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteStaffAccount(user)}
+                                className="p-1.5 bg-slate-100 hover:bg-red-50 text-slate-600 hover:text-red-700 rounded-lg transition-colors"
+                                title="Delete Account"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
                             </div>
-                            <div>
-                              <div>{staff.userName}</div>
-                              <div className="text-[11px] text-slate-400 font-normal">{staff.userEmail}</div>
-                            </div>
-                          </div>
-                        </td>
-                        <td className="py-3.5 px-4">
-                          <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${
-                            staff.role === 'super_admin'
-                              ? 'bg-indigo-50 text-indigo-700 border border-indigo-200'
-                              : 'bg-blue-50 text-blue-700 border border-blue-200'
-                          }`}>
-                            {staff.role === 'super_admin' ? 'Super Admin' : 'Staff'}
-                          </span>
-                        </td>
-                        <td className="py-3.5 px-4 text-center font-bold text-slate-800">{staff.totalSearches}</td>
-                        <td className="py-3.5 px-4 text-center font-bold text-indigo-600">{staff.totalLeadsFound}</td>
-                        <td className="py-3.5 px-4 text-center font-bold text-emerald-600">{staff.totalSent}</td>
-                        <td className="py-3.5 px-4 text-right text-slate-500 font-medium">
-                          {new Date(staff.lastActive).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                        </td>
-                      </tr>
-                    ))}
+                          </td>
+                        </tr>
+                      )
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -1223,6 +1507,84 @@ export default function ModesendDashboard() {
         )}
       </main>
 
+      {/* ================= MODAL: EDIT USER PROFILE ================= */}
+      {showEditProfileModal && userToEdit && (
+        <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
+          <form
+            onSubmit={handleSaveProfileEdit}
+            className="bg-white rounded-2xl border border-slate-200 p-6 max-w-md w-full shadow-2xl space-y-4"
+          >
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                <Edit2 className="w-4 h-4 text-blue-600" />
+                Edit Account Details
+              </h3>
+              <button
+                type="button"
+                onClick={() => setShowEditProfileModal(false)}
+                className="text-slate-400 hover:text-slate-700 text-sm font-bold"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">Full Name & Title</label>
+              <input
+                type="text"
+                required
+                value={editName}
+                onChange={(e) => setEditName(e.target.value)}
+                className="w-full bg-slate-50 border border-slate-300 rounded-xl p-3 text-xs text-slate-900 focus:outline-none focus:border-blue-600 font-medium"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">Email Address</label>
+              <input
+                type="email"
+                required
+                value={editEmail}
+                onChange={(e) => setEditEmail(e.target.value)}
+                placeholder="admin@yourdomain.com"
+                className="w-full bg-slate-50 border border-slate-300 rounded-xl p-3 text-xs text-slate-900 focus:outline-none focus:border-blue-600 font-medium"
+              />
+              <span className="text-[10px] text-slate-400 mt-1 block">
+                Update to your correct corporate email address.
+              </span>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">Account Role</label>
+              <select
+                value={editRole}
+                onChange={(e) => setEditRole(e.target.value as 'staff' | 'super_admin')}
+                className="w-full bg-slate-50 border border-slate-300 rounded-xl p-3 text-xs text-slate-900 focus:outline-none focus:border-blue-600 font-semibold"
+              >
+                <option value="staff">Staff Member (Prospecting & Outreach)</option>
+                <option value="super_admin">Super Administrator (Full Team Oversight)</option>
+              </select>
+            </div>
+
+            <div className="pt-3 border-t border-slate-100 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setShowEditProfileModal(false)}
+                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded-xl text-xs"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-xs shadow-sm shadow-blue-500/20"
+              >
+                Save Changes
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
       {/* ================= MODAL: SWITCH ACTIVE ACCOUNT ================= */}
       {showAuthModal && (
         <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
@@ -1265,15 +1627,17 @@ export default function ModesendDashboard() {
                       </div>
                       <div>
                         <div className="font-bold text-slate-900">{u.fullName}</div>
-                        <div className="text-slate-500 text-[11px]">{u.email}</div>
+                        <div className="text-blue-700 font-medium text-[11px]">{u.email}</div>
                       </div>
                     </div>
 
-                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
-                      u.role === 'super_admin' ? 'bg-indigo-100 text-indigo-700' : 'bg-blue-100 text-blue-700'
-                    }`}>
-                      {u.role === 'super_admin' ? 'Super Admin' : 'Staff'}
-                    </span>
+                    <div className="flex items-center gap-1.5">
+                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
+                        u.role === 'super_admin' ? 'bg-indigo-100 text-indigo-700' : 'bg-blue-100 text-blue-700'
+                      }`}>
+                        {u.role === 'super_admin' ? 'Super Admin' : 'Staff'}
+                      </span>
+                    </div>
                   </div>
                 )
               })}
