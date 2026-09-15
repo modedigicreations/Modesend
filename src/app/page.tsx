@@ -100,10 +100,10 @@ export default function ModesendDashboard() {
   // Resend Dispatcher State
   const [senderName, setSenderName] = useState(() => {
     if (typeof window !== 'undefined') return (getCurrentUser() || DEFAULT_ACCOUNTS[0]).fullName.split(' (')[0]
-    return 'Modewebhost Team'
+    return 'Mode Digital Creations Team'
   })
-  const [senderEmail, setSenderEmail] = useState('Modesend <onboarding@resend.dev>')
-  const [replyToEmail, setReplyToEmail] = useState('hello@modewebhost.com')
+  const [senderEmail, setSenderEmail] = useState('Mode Digital Creations <onboarding@resend.dev>')
+  const [replyToEmail, setReplyToEmail] = useState('info@modedigitalcreations.ng')
   const [isSending, setIsSending] = useState(false)
   const [sendSuccessMessage, setSendSuccessMessage] = useState<string | null>(null)
   const [testRecipient, setTestRecipient] = useState('')
