@@ -14,16 +14,47 @@ import {
   Eye,
   RefreshCw,
   ChevronRight,
-  BarChart3,
   Flame,
   Globe,
   Copy,
   Check,
   Zap,
+  Shield,
+  Users,
+  UserPlus,
+  Activity,
+  Sliders,
 } from 'lucide-react'
-import { BusinessLead } from '@/types'
+import { BusinessLead, UserProfile, StaffActivity, StaffMemberStats } from '@/types'
+import {
+  getCurrentUser,
+  setCurrentUser,
+  getAllRegisteredUsers,
+  registerNewUser,
+  DEFAULT_ACCOUNTS,
+} from '@/lib/auth'
+import {
+  getStaffActivities,
+  logStaffActivity,
+  getStaffPerformanceStats,
+} from '@/lib/audit'
 
 export default function ModesendDashboard() {
+  // Authentication & Role State
+  const [currentUser, setLocalCurrentUser] = useState<UserProfile>(() => {
+    if (typeof window !== 'undefined') return getCurrentUser()
+    return DEFAULT_ACCOUNTS[0]
+  })
+  const [allUsers, setAllUsers] = useState<UserProfile[]>(() => {
+    if (typeof window !== 'undefined') return getAllRegisteredUsers()
+    return DEFAULT_ACCOUNTS
+  })
+  const [showAuthModal, setShowAuthModal] = useState(false)
+  const [showNewStaffModal, setShowNewStaffModal] = useState(false)
+  const [newStaffName, setNewStaffName] = useState('')
+  const [newStaffEmail, setNewStaffEmail] = useState('')
+  const [newStaffRole, setNewStaffRole] = useState<'staff' | 'super_admin'>('staff')
+
   // Discovery State
   const [keyword, setKeyword] = useState('Schools')
   const [location, setLocation] = useState('Port Harcourt')
@@ -42,7 +73,10 @@ export default function ModesendDashboard() {
   const [isPersonalizing, setIsPersonalizing] = useState(false)
 
   // Resend Dispatcher State
-  const [senderName, setSenderName] = useState('Modewebhost Team')
+  const [senderName, setSenderName] = useState(() => {
+    if (typeof window !== 'undefined') return getCurrentUser().fullName.split(' (')[0]
+    return 'Modewebhost Team'
+  })
   const [senderEmail, setSenderEmail] = useState('Modesend <onboarding@resend.dev>')
   const [replyToEmail, setReplyToEmail] = useState('hello@modewebhost.com')
   const [isSending, setIsSending] = useState(false)
@@ -51,8 +85,19 @@ export default function ModesendDashboard() {
   const [isSendingTest, setIsSendingTest] = useState(false)
   const [copiedEmail, setCopiedEmail] = useState<string | null>(null)
 
+  // Super Admin Monitoring State
+  const [teamActivities, setTeamActivities] = useState<StaffActivity[]>(() => {
+    if (typeof window !== 'undefined') return getStaffActivities()
+    return []
+  })
+  const [staffStats, setStaffStats] = useState<StaffMemberStats[]>(() => {
+    if (typeof window !== 'undefined') return getStaffPerformanceStats()
+    return []
+  })
+  const [selectedStaffFilter, setSelectedStaffFilter] = useState<string>('all')
+
   // Active View Tab
-  const [activeTab, setActiveTab] = useState<'finder' | 'personalizer' | 'campaigns' | 'analytics'>('finder')
+  const [activeTab, setActiveTab] = useState<'finder' | 'personalizer' | 'campaigns' | 'admin_oversight'>('finder')
 
   // Quick Preset Queries
   const presets = [
@@ -62,6 +107,44 @@ export default function ModesendDashboard() {
     { label: 'Logistics in Port Harcourt', kw: 'Logistics Companies', loc: 'Port Harcourt' },
     { label: 'Tech Startups in Nairobi', kw: 'Tech Startups', loc: 'Nairobi' },
   ]
+
+  // Switch Active User Profile
+  const handleSwitchUser = (user: UserProfile) => {
+    setCurrentUser(user)
+    setLocalCurrentUser(user)
+    setSenderName(user.fullName.split(' (')[0])
+    setShowAuthModal(false)
+
+    // Refresh audit stats
+    setTeamActivities(getStaffActivities())
+    setStaffStats(getStaffPerformanceStats())
+  }
+
+  // Register New Staff Member
+  const handleCreateStaff = (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!newStaffName || !newStaffEmail) return
+
+    const created = registerNewUser(newStaffName, newStaffEmail, newStaffRole)
+    const updatedUsers = getAllRegisteredUsers()
+    setAllUsers(updatedUsers)
+    setLocalCurrentUser(created)
+    setCurrentUser(created)
+    setSenderName(created.fullName.split(' (')[0])
+
+    logStaffActivity(
+      currentUser,
+      'login',
+      `Onboarded new staff member: ${created.fullName} (${created.email})`
+    )
+
+    setTeamActivities(getStaffActivities())
+    setStaffStats(getStaffPerformanceStats())
+
+    setNewStaffName('')
+    setNewStaffEmail('')
+    setShowNewStaffModal(false)
+  }
 
   // Search & Discover Leads
   const handleSearch = async (e?: React.FormEvent) => {
@@ -91,6 +174,17 @@ export default function ModesendDashboard() {
         if (data.leads.length > 0) {
           generatePreviewForLead(data.leads[0], 1)
         }
+
+        // Log staff activity into audit trail
+        logStaffActivity(
+          currentUser,
+          'search_leads',
+          `Searched "${keyword} in ${location}" and discovered ${data.leads.length} leads`,
+          { keyword, location, count: data.leads.length }
+        )
+
+        setTeamActivities(getStaffActivities())
+        setStaffStats(getStaffPerformanceStats())
       }
     } catch (err) {
       console.error('Search failed:', err)
@@ -137,6 +231,15 @@ export default function ModesendDashboard() {
       if (data.success && data.email) {
         setPreviewSubject(data.email.subject)
         setPreviewBody(data.email.bodyText)
+
+        // Log personalization action
+        logStaffActivity(
+          currentUser,
+          'personalize_copy',
+          `Generated Step ${step} personalized outreach draft for ${lead.name}`,
+          { leadName: lead.name, step }
+        )
+        setTeamActivities(getStaffActivities())
       }
     } catch (err) {
       console.error('Personalization failed:', err)
@@ -181,6 +284,13 @@ export default function ModesendDashboard() {
       const data = await res.json()
       if (data.success) {
         alert(`Test email successfully dispatched to ${testRecipient}!`)
+        logStaffActivity(
+          currentUser,
+          'send_test',
+          `Dispatched test preview email to ${testRecipient}`,
+          { recipient: testRecipient }
+        )
+        setTeamActivities(getStaffActivities())
       } else {
         alert(`Failed: ${data.error || 'Resend delivery failed'}`)
       }
@@ -227,6 +337,16 @@ export default function ModesendDashboard() {
             return lead
           })
         )
+
+        logStaffActivity(
+          currentUser,
+          'send_campaign',
+          `Launched cold outreach campaign: Sent ${data.successfulSends} emails via Resend`,
+          { count: data.successfulSends, leadsSample: selectedLeads.slice(0, 3).map((l) => l.name) }
+        )
+
+        setTeamActivities(getStaffActivities())
+        setStaffStats(getStaffPerformanceStats())
       } else {
         alert(`Dispatch error: ${data.error}`)
       }
@@ -237,133 +357,189 @@ export default function ModesendDashboard() {
     }
   }
 
-  // Computed stats
+  // Filtered activities
+  const filteredActivities =
+    selectedStaffFilter === 'all'
+      ? teamActivities
+      : teamActivities.filter((a) => a.userId === selectedStaffFilter)
+
+  // Computed totals
   const totalVerified = leads.filter((l) => l.email && l.emailStatus === 'verified').length
   const totalSent = leads.filter((l) => l.status === 'sent').length
 
-  return (
-    <div className="min-h-screen bg-[#090b0e] text-slate-100 font-sans selection:bg-emerald-500/30 selection:text-emerald-200">
-      {/* Top Ambient Glow */}
-      <div className="fixed top-0 left-1/2 -translate-x-1/2 w-[800px] h-[350px] bg-gradient-to-b from-emerald-500/10 via-cyan-500/5 to-transparent blur-3xl pointer-events-none -z-10" />
+  const isSuperAdmin = currentUser.role === 'super_admin'
 
-      {/* Header */}
-      <header className="sticky top-0 z-40 bg-[#090b0e]/80 backdrop-blur-md border-b border-white/5 px-6 py-4">
+  return (
+    <div className="min-h-screen bg-[#f8fafc] text-slate-900 font-sans selection:bg-blue-600/20 selection:text-blue-900">
+      {/* Top Navbar */}
+      <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-slate-200 shadow-sm px-6 py-3.5">
         <div className="max-w-7xl mx-auto flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-emerald-500 to-cyan-400 p-0.5 shadow-lg shadow-emerald-500/20 flex items-center justify-center">
-              <div className="w-full h-full bg-[#090b0e] rounded-[10px] flex items-center justify-center">
-                <Zap className="w-5 h-5 text-emerald-400 fill-emerald-400/20" />
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-blue-700 to-indigo-600 p-0.5 shadow-md shadow-blue-500/20 flex items-center justify-center">
+              <div className="w-full h-full bg-blue-600 rounded-[10px] flex items-center justify-center text-white">
+                <Zap className="w-5 h-5 fill-white/20" />
               </div>
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h1 className="text-xl font-bold tracking-tight text-white">Modesend</h1>
-                <span className="px-2 py-0.5 text-[11px] font-semibold tracking-wide uppercase bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded-full">
-                  Internal Engine
+                <h1 className="text-xl font-bold tracking-tight text-slate-900">Modesend</h1>
+                <span className="px-2.5 py-0.5 text-[11px] font-semibold tracking-wide uppercase bg-blue-50 text-blue-700 border border-blue-200 rounded-full">
+                  Enterprise Outreach
                 </span>
               </div>
-              <p className="text-xs text-slate-400">Autonomous Keyword & Location B2B Prospecting</p>
+              <p className="text-xs text-slate-500">Autonomous B2B Prospecting & Resend Email Dispatcher</p>
             </div>
           </div>
 
-          {/* Quick Metrics Badge */}
-          <div className="flex items-center gap-2 md:gap-4 overflow-x-auto pb-1 md:pb-0">
-            <div className="flex items-center gap-2 bg-[#12161f] border border-white/5 px-3 py-1.5 rounded-lg text-xs">
-              <span className="text-slate-400">Discovered:</span>
-              <span className="font-semibold text-white">{leads.length}</span>
+          {/* User Account & Quick Role Indicator */}
+          <div className="flex items-center gap-3">
+            {/* Quick Metrics */}
+            <div className="hidden lg:flex items-center gap-2">
+              <div className="flex items-center gap-1.5 bg-slate-100 border border-slate-200 px-2.5 py-1.5 rounded-lg text-xs font-medium text-slate-700">
+                <span className="text-slate-400">Leads:</span>
+                <span className="font-bold text-slate-900">{leads.length}</span>
+              </div>
+              <div className="flex items-center gap-1.5 bg-blue-50 border border-blue-200 px-2.5 py-1.5 rounded-lg text-xs font-medium text-blue-800">
+                <span className="text-blue-500">Verified:</span>
+                <span className="font-bold">{totalVerified}</span>
+              </div>
+              <div className="flex items-center gap-1.5 bg-indigo-50 border border-indigo-200 px-2.5 py-1.5 rounded-lg text-xs font-medium text-indigo-800">
+                <span className="text-indigo-500">Sent:</span>
+                <span className="font-bold">{totalSent}</span>
+              </div>
             </div>
-            <div className="flex items-center gap-2 bg-[#12161f] border border-white/5 px-3 py-1.5 rounded-lg text-xs">
-              <span className="text-slate-400">Verified:</span>
-              <span className="font-semibold text-emerald-400">{totalVerified}</span>
+
+            {/* Resend Status Badge */}
+            <div className="flex items-center gap-1.5 bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-lg text-xs text-emerald-700 font-semibold shadow-xs">
+              <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+              Resend Active
             </div>
-            <div className="flex items-center gap-2 bg-[#12161f] border border-white/5 px-3 py-1.5 rounded-lg text-xs">
-              <span className="text-slate-400">Sent:</span>
-              <span className="font-semibold text-cyan-400">{totalSent}</span>
-            </div>
-            <div className="flex items-center gap-1.5 bg-emerald-500/10 border border-emerald-500/30 px-3 py-1.5 rounded-lg text-xs text-emerald-400 font-medium">
-              <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-              Resend Connected
+
+            {/* Active User Pill / Switcher */}
+            <div className="flex items-center gap-2 pl-2 border-l border-slate-200">
+              <button
+                type="button"
+                onClick={() => setShowAuthModal(true)}
+                className="flex items-center gap-2 bg-slate-50 hover:bg-slate-100 border border-slate-300 px-3 py-1.5 rounded-xl text-xs transition-colors text-left"
+              >
+                <div className={`w-6 h-6 rounded-full flex items-center justify-center text-white font-bold text-[10px] ${
+                  isSuperAdmin ? 'bg-indigo-600' : 'bg-blue-600'
+                }`}>
+                  {currentUser.fullName.charAt(0)}
+                </div>
+                <div className="hidden sm:block">
+                  <div className="font-semibold text-slate-900 leading-tight truncate max-w-[140px]">
+                    {currentUser.fullName.split(' (')[0]}
+                  </div>
+                  <div className="text-[10px] text-slate-500 font-medium">
+                    {isSuperAdmin ? 'Super Admin' : 'Staff Member'}
+                  </div>
+                </div>
+                <Sliders className="w-3.5 h-3.5 text-slate-400 ml-1" />
+              </button>
+
+              {/* Add Staff Button */}
+              <button
+                type="button"
+                onClick={() => setShowNewStaffModal(true)}
+                className="p-2 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-xl text-xs transition-colors"
+                title="Create Staff Account"
+              >
+                <UserPlus className="w-4 h-4" />
+              </button>
             </div>
           </div>
         </div>
       </header>
 
-      {/* Main Container */}
+      {/* Main Body */}
       <main className="max-w-7xl mx-auto px-4 md:px-6 py-8">
         {/* Navigation Tabs */}
-        <div className="flex items-center gap-2 border-b border-white/10 pb-4 mb-8 overflow-x-auto">
+        <div className="flex items-center gap-2 border-b border-slate-200 pb-4 mb-8 overflow-x-auto">
           <button
             onClick={() => setActiveTab('finder')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-all ${
               activeTab === 'finder'
-                ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 shadow-sm'
-                : 'text-slate-400 hover:text-slate-200 hover:bg-white/5'
+                ? 'bg-blue-600 text-white shadow-md shadow-blue-600/20'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
             }`}
           >
             <Search className="w-4 h-4" />
             Lead Discovery
           </button>
+
           <button
             onClick={() => setActiveTab('personalizer')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-all ${
               activeTab === 'personalizer'
-                ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 shadow-sm'
-                : 'text-slate-400 hover:text-slate-200 hover:bg-white/5'
+                ? 'bg-blue-600 text-white shadow-md shadow-blue-600/20'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
             }`}
           >
             <Sparkles className="w-4 h-4" />
             AI Personalization Studio
           </button>
+
           <button
             onClick={() => setActiveTab('campaigns')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-all ${
               activeTab === 'campaigns'
-                ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 shadow-sm'
-                : 'text-slate-400 hover:text-slate-200 hover:bg-white/5'
+                ? 'bg-blue-600 text-white shadow-md shadow-blue-600/20'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
             }`}
           >
             <Send className="w-4 h-4" />
             Resend Outreach ({selectedLeadIds.size})
           </button>
+
+          {/* Super Admin Monitoring Tab */}
           <button
-            onClick={() => setActiveTab('analytics')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-              activeTab === 'analytics'
-                ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 shadow-sm'
-                : 'text-slate-400 hover:text-slate-200 hover:bg-white/5'
+            onClick={() => setActiveTab('admin_oversight')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-all ${
+              activeTab === 'admin_oversight'
+                ? 'bg-indigo-700 text-white shadow-md shadow-indigo-600/20'
+                : 'text-indigo-700 bg-indigo-50/80 hover:bg-indigo-100 border border-indigo-200'
             }`}
           >
-            <BarChart3 className="w-4 h-4" />
-            Outreach Telemetry
+            <Shield className="w-4 h-4 text-indigo-500" />
+            Staff Activity Oversight
+            {isSuperAdmin && (
+              <span className="px-1.5 py-0.2 bg-white text-indigo-700 font-bold text-[10px] rounded-full">
+                Admin
+              </span>
+            )}
           </button>
         </div>
 
-        {/* ================= TAB 1: LEAD FINDER ================= */}
+        {/* ================= TAB 1: LEAD DISCOVERY ================= */}
         {activeTab === 'finder' && (
           <div className="space-y-8">
-            {/* Search Box */}
-            <div className="bg-[#11141b] border border-white/10 rounded-2xl p-6 shadow-xl relative overflow-hidden">
-              <div className="absolute -right-20 -top-20 w-60 h-60 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none" />
+            {/* Search Box Card */}
+            <div className="bg-white border border-slate-200 rounded-2xl p-6 sm:p-8 shadow-sm relative overflow-hidden">
+              <div className="absolute top-0 right-0 w-80 h-80 bg-blue-50/70 rounded-full blur-3xl pointer-events-none -z-0" />
 
-              <div className="mb-4">
-                <h2 className="text-lg font-semibold text-white flex items-center gap-2">
-                  <Flame className="w-5 h-5 text-emerald-400" />
-                  Prospect Any Niche in Any Location
+              <div className="mb-6 relative z-10">
+                <div className="flex items-center gap-2 text-blue-700 font-bold text-xs uppercase tracking-wider mb-1">
+                  <Flame className="w-4 h-4" />
+                  Keyword & Location Lead Engine
+                </div>
+                <h2 className="text-xl font-bold text-slate-900">
+                  Discover High-Intent Prospects & Verified Emails
                 </h2>
-                <p className="text-xs text-slate-400">
-                  Zero prior prospect info needed. Enter an industry and city to discover businesses and extract verified emails.
+                <p className="text-xs text-slate-500 mt-1">
+                  Logged in as: <span className="font-semibold text-slate-800">{currentUser.fullName}</span> • Searches are logged for team reporting.
                 </p>
               </div>
 
-              <form onSubmit={handleSearch} className="grid grid-cols-1 md:grid-cols-12 gap-3">
+              <form onSubmit={handleSearch} className="grid grid-cols-1 md:grid-cols-12 gap-3 relative z-10">
                 <div className="md:col-span-5 relative">
                   <Building2 className="w-5 h-5 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
                   <input
                     type="text"
                     value={keyword}
                     onChange={(e) => setKeyword(e.target.value)}
-                    placeholder="Niche / Keyword (e.g. Schools, Law Firms, Hospitals)"
-                    className="w-full bg-[#181d26] border border-white/10 rounded-xl pl-11 pr-4 py-3.5 text-sm text-white placeholder:text-slate-500 focus:outline-none focus:border-emerald-500/50 focus:ring-1 focus:ring-emerald-500/50 transition-all"
+                    placeholder="Industry / Keyword (e.g. Schools, Law Firms, Hospitals)"
+                    className="w-full bg-slate-50 border border-slate-300 rounded-xl pl-11 pr-4 py-3.5 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-blue-600 focus:bg-white focus:ring-2 focus:ring-blue-600/10 transition-all font-medium"
                   />
                 </div>
 
@@ -373,8 +549,8 @@ export default function ModesendDashboard() {
                     type="text"
                     value={location}
                     onChange={(e) => setLocation(e.target.value)}
-                    placeholder="City / Region (e.g. Port Harcourt, Lagos, London)"
-                    className="w-full bg-[#181d26] border border-white/10 rounded-xl pl-11 pr-4 py-3.5 text-sm text-white placeholder:text-slate-500 focus:outline-none focus:border-emerald-500/50 focus:ring-1 focus:ring-emerald-500/50 transition-all"
+                    placeholder="City / Location (e.g. Port Harcourt, Lagos, London)"
+                    className="w-full bg-slate-50 border border-slate-300 rounded-xl pl-11 pr-4 py-3.5 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-blue-600 focus:bg-white focus:ring-2 focus:ring-blue-600/10 transition-all font-medium"
                   />
                 </div>
 
@@ -382,12 +558,12 @@ export default function ModesendDashboard() {
                   <button
                     type="submit"
                     disabled={isSearching}
-                    className="w-full h-full min-h-[48px] bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-semibold rounded-xl flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/25 transition-all disabled:opacity-50"
+                    className="w-full h-full min-h-[48px] bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold rounded-xl flex items-center justify-center gap-2 shadow-md shadow-blue-500/20 transition-all disabled:opacity-50"
                   >
                     {isSearching ? (
                       <>
                         <RefreshCw className="w-4 h-4 animate-spin" />
-                        Crawling & Verifying...
+                        Finding Verified Leads...
                       </>
                     ) : (
                       <>
@@ -399,10 +575,10 @@ export default function ModesendDashboard() {
                 </div>
               </form>
 
-              {/* Presets */}
-              <div className="mt-4 flex items-center gap-2 flex-wrap">
-                <span className="text-xs text-slate-400 flex items-center gap-1">
-                  <Zap className="w-3 h-3 text-emerald-400" /> Quick suggestions:
+              {/* Quick Presets */}
+              <div className="mt-5 flex items-center gap-2 flex-wrap relative z-10">
+                <span className="text-xs text-slate-500 font-medium flex items-center gap-1">
+                  <Zap className="w-3.5 h-3.5 text-blue-600" /> Suggestions:
                 </span>
                 {presets.map((p, idx) => (
                   <button
@@ -412,7 +588,7 @@ export default function ModesendDashboard() {
                       setKeyword(p.kw)
                       setLocation(p.loc)
                     }}
-                    className="text-xs bg-white/5 hover:bg-white/10 text-slate-300 px-2.5 py-1 rounded-lg border border-white/5 transition-colors"
+                    className="text-xs bg-slate-100 hover:bg-blue-50 hover:text-blue-700 text-slate-700 px-3 py-1.5 rounded-lg border border-slate-200 transition-colors font-medium"
                   >
                     {p.label}
                   </button>
@@ -420,29 +596,29 @@ export default function ModesendDashboard() {
               </div>
             </div>
 
-            {/* Results Roster */}
+            {/* Results Grid */}
             {leads.length > 0 && (
-              <div className="bg-[#11141b] border border-white/10 rounded-2xl p-6 shadow-xl space-y-4">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-white/10 pb-4">
+              <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-4">
                   <div>
-                    <h3 className="text-base font-semibold text-white">
-                      Discovered Prospects ({leads.length})
+                    <h3 className="text-base font-bold text-slate-900">
+                      Discovered Leads ({leads.length})
                     </h3>
-                    <p className="text-xs text-slate-400">
-                      Found in {location} • {totalVerified} verified emails ready for 1-click outreach
+                    <p className="text-xs text-slate-500">
+                      Target Area: <span className="font-semibold text-slate-700">{location}</span> • {totalVerified} verified emails ready for outreach
                     </p>
                   </div>
 
-                  <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-2">
                     <button
                       onClick={toggleSelectAll}
-                      className="text-xs px-3 py-1.5 bg-white/5 hover:bg-white/10 text-slate-300 rounded-lg border border-white/10 transition-colors"
+                      className="text-xs px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded-lg border border-slate-200 transition-colors"
                     >
                       {selectedLeadIds.size === leads.length ? 'Deselect All' : 'Select All'}
                     </button>
                     <button
                       onClick={() => setActiveTab('personalizer')}
-                      className="text-xs px-3.5 py-1.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-semibold rounded-lg flex items-center gap-1.5 transition-colors"
+                      className="text-xs px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg flex items-center gap-1.5 shadow-sm shadow-blue-500/20 transition-colors"
                     >
                       <Sparkles className="w-3.5 h-3.5" />
                       Personalize Selected ({selectedLeadIds.size})
@@ -450,7 +626,7 @@ export default function ModesendDashboard() {
                   </div>
                 </div>
 
-                {/* Leads Grid */}
+                {/* Leads Cards */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   {leads.map((lead) => {
                     const isSelected = selectedLeadIds.has(lead.id)
@@ -460,8 +636,8 @@ export default function ModesendDashboard() {
                         onClick={() => toggleSelectLead(lead.id)}
                         className={`p-4 rounded-xl border transition-all cursor-pointer relative ${
                           isSelected
-                            ? 'bg-[#151a24] border-emerald-500/40 shadow-sm shadow-emerald-500/10'
-                            : 'bg-[#13161f] border-white/5 hover:border-white/15'
+                            ? 'bg-blue-50/50 border-blue-500 shadow-sm shadow-blue-500/10'
+                            : 'bg-white border-slate-200 hover:border-slate-300'
                         }`}
                       >
                         <div className="flex items-start justify-between gap-3">
@@ -471,16 +647,16 @@ export default function ModesendDashboard() {
                               checked={isSelected}
                               onChange={() => toggleSelectLead(lead.id)}
                               onClick={(e) => e.stopPropagation()}
-                              className="mt-1 w-4 h-4 rounded border-slate-700 bg-slate-900 text-emerald-500 focus:ring-emerald-500/50"
+                              className="mt-1 w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
                             />
                             <div className="flex-1 min-w-0">
-                              <h4 className="font-semibold text-white text-sm truncate">{lead.name}</h4>
-                              <p className="text-xs text-slate-400 flex items-center gap-1.5 mt-0.5">
-                                <span className="px-1.5 py-0.5 bg-white/5 rounded text-[10px] text-slate-300">
+                              <h4 className="font-bold text-slate-900 text-sm truncate">{lead.name}</h4>
+                              <p className="text-xs text-slate-500 flex items-center gap-1.5 mt-0.5">
+                                <span className="px-2 py-0.5 bg-slate-100 rounded text-[11px] font-medium text-slate-700">
                                   {lead.category}
                                 </span>
                                 {lead.rating && (
-                                  <span className="text-amber-400 text-[11px] font-medium">
+                                  <span className="text-amber-500 text-xs font-semibold">
                                     ★ {lead.rating} ({lead.reviewsCount})
                                   </span>
                                 )}
@@ -490,26 +666,26 @@ export default function ModesendDashboard() {
 
                           {/* Status Badge */}
                           {lead.status === 'sent' ? (
-                            <span className="px-2 py-0.5 text-[10px] font-medium bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 rounded-full flex items-center gap-1">
+                            <span className="px-2.5 py-0.5 text-[11px] font-semibold bg-cyan-50 text-cyan-700 border border-cyan-200 rounded-full flex items-center gap-1">
                               <CheckCircle2 className="w-3 h-3" /> Sent
                             </span>
                           ) : lead.emailStatus === 'verified' ? (
-                            <span className="px-2 py-0.5 text-[10px] font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded-full flex items-center gap-1">
+                            <span className="px-2.5 py-0.5 text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full flex items-center gap-1">
                               <CheckCircle2 className="w-3 h-3" /> Verified
                             </span>
                           ) : (
-                            <span className="px-2 py-0.5 text-[10px] font-medium bg-amber-500/10 text-amber-400 border border-amber-500/20 rounded-full">
+                            <span className="px-2.5 py-0.5 text-[11px] font-semibold bg-amber-50 text-amber-700 border border-amber-200 rounded-full">
                               Unverified
                             </span>
                           )}
                         </div>
 
                         {/* Contact Meta */}
-                        <div className="mt-3 pt-3 border-t border-white/5 grid grid-cols-1 gap-1.5 text-xs text-slate-300">
+                        <div className="mt-3 pt-3 border-t border-slate-100 grid grid-cols-1 gap-1.5 text-xs text-slate-700">
                           {lead.email && (
                             <div className="flex items-center justify-between gap-2 group">
-                              <span className="flex items-center gap-1.5 text-emerald-300 font-mono truncate">
-                                <Mail className="w-3.5 h-3.5 shrink-0 text-emerald-400" />
+                              <span className="flex items-center gap-1.5 text-blue-800 font-mono font-medium truncate">
+                                <Mail className="w-3.5 h-3.5 shrink-0 text-blue-600" />
                                 {lead.email}
                               </span>
                               <button
@@ -518,36 +694,36 @@ export default function ModesendDashboard() {
                                   e.stopPropagation()
                                   handleCopyEmail(lead.email || '')
                                 }}
-                                className="opacity-0 group-hover:opacity-100 text-[10px] text-slate-400 hover:text-white transition-opacity flex items-center gap-1"
+                                className="opacity-0 group-hover:opacity-100 text-[10px] text-slate-400 hover:text-slate-800 transition-opacity flex items-center gap-1"
                               >
-                                {copiedEmail === lead.email ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                                {copiedEmail === lead.email ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3" />}
                               </button>
                             </div>
                           )}
 
                           {lead.phone && (
-                            <div className="flex items-center gap-1.5 text-slate-400 truncate">
-                              <Phone className="w-3.5 h-3.5 shrink-0 text-slate-500" />
+                            <div className="flex items-center gap-1.5 text-slate-500 truncate">
+                              <Phone className="w-3.5 h-3.5 shrink-0 text-slate-400" />
                               {lead.phone}
                             </div>
                           )}
 
                           {lead.address && (
-                            <div className="flex items-center gap-1.5 text-slate-400 truncate">
-                              <MapPin className="w-3.5 h-3.5 shrink-0 text-slate-500" />
+                            <div className="flex items-center gap-1.5 text-slate-500 truncate">
+                              <MapPin className="w-3.5 h-3.5 shrink-0 text-slate-400" />
                               {lead.address}
                             </div>
                           )}
 
                           {lead.website && (
                             <div className="flex items-center gap-1.5 mt-1">
-                              <Globe className="w-3.5 h-3.5 shrink-0 text-slate-500" />
+                              <Globe className="w-3.5 h-3.5 shrink-0 text-slate-400" />
                               <a
                                 href={lead.website}
                                 target="_blank"
                                 rel="noreferrer"
                                 onClick={(e) => e.stopPropagation()}
-                                className="text-cyan-400 hover:underline flex items-center gap-1 truncate"
+                                className="text-blue-600 hover:underline flex items-center gap-1 truncate font-medium"
                               >
                                 {lead.website.replace(/^https?:\/\//i, '')}
                                 <ExternalLink className="w-3 h-3 shrink-0" />
@@ -556,7 +732,7 @@ export default function ModesendDashboard() {
                           )}
                         </div>
 
-                        {/* Action link */}
+                        {/* Action Preview */}
                         <div className="mt-3 flex items-center justify-end gap-2">
                           <button
                             type="button"
@@ -565,9 +741,9 @@ export default function ModesendDashboard() {
                               generatePreviewForLead(lead, 1)
                               setActiveTab('personalizer')
                             }}
-                            className="text-[11px] text-emerald-400 hover:text-emerald-300 font-medium flex items-center gap-1"
+                            className="text-xs text-blue-600 hover:text-blue-800 font-bold flex items-center gap-1"
                           >
-                            <Eye className="w-3 h-3" /> Preview AI Email
+                            <Eye className="w-3.5 h-3.5" /> Preview AI Email
                           </button>
                         </div>
                       </div>
@@ -582,48 +758,48 @@ export default function ModesendDashboard() {
         {/* ================= TAB 2: AI PERSONALIZATION STUDIO ================= */}
         {activeTab === 'personalizer' && (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-            {/* Offer Setup Column */}
+            {/* Offer Setup */}
             <div className="lg:col-span-5 space-y-6">
-              <div className="bg-[#11141b] border border-white/10 rounded-2xl p-6 shadow-xl space-y-4">
+              <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm space-y-4">
                 <div>
-                  <h3 className="text-base font-semibold text-white flex items-center gap-2">
-                    <Sparkles className="w-4 h-4 text-emerald-400" />
-                    Company Offer & Value Proposition
+                  <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                    <Sparkles className="w-4 h-4 text-blue-600" />
+                    Company Pitch & Value Proposition
                   </h3>
-                  <p className="text-xs text-slate-400 mt-0.5">
-                    Modesend adapts this offer dynamically into each lead’s exact operational context.
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Modesend tailors this core value proposition to each prospect’s operational profile.
                   </p>
                 </div>
 
                 <div>
-                  <label className="block text-xs font-medium text-slate-300 mb-1.5">
+                  <label className="block text-xs font-semibold text-slate-700 mb-1.5">
                     What are you offering?
                   </label>
                   <textarea
                     rows={4}
                     value={companyOffer}
                     onChange={(e) => setCompanyOffer(e.target.value)}
-                    className="w-full bg-[#181d26] border border-white/10 rounded-xl p-3 text-xs text-white placeholder:text-slate-500 focus:outline-none focus:border-emerald-500/50"
+                    className="w-full bg-slate-50 border border-slate-300 rounded-xl p-3 text-xs text-slate-900 focus:outline-none focus:border-blue-600 focus:bg-white focus:ring-2 focus:ring-blue-600/10 font-medium"
                   />
                 </div>
 
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-xs font-medium text-slate-300 mb-1">Sender Name</label>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">Sender Name</label>
                     <input
                       type="text"
                       value={senderName}
                       onChange={(e) => setSenderName(e.target.value)}
-                      className="w-full bg-[#181d26] border border-white/10 rounded-lg p-2.5 text-xs text-white focus:outline-none"
+                      className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2.5 text-xs text-slate-900 focus:outline-none focus:border-blue-600"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-slate-300 mb-1">Sender Email</label>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">Sender Email</label>
                     <input
                       type="text"
                       value={senderEmail}
                       onChange={(e) => setSenderEmail(e.target.value)}
-                      className="w-full bg-[#181d26] border border-white/10 rounded-lg p-2.5 text-xs text-white focus:outline-none"
+                      className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2.5 text-xs text-slate-900 focus:outline-none focus:border-blue-600"
                     />
                   </div>
                 </div>
@@ -635,7 +811,7 @@ export default function ModesendDashboard() {
                       if (activeLeadForPreview) generatePreviewForLead(activeLeadForPreview, previewStep)
                     }}
                     disabled={isPersonalizing || !activeLeadForPreview}
-                    className="w-full py-2.5 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/30 font-medium rounded-xl text-xs flex items-center justify-center gap-2 transition-colors disabled:opacity-50"
+                    className="w-full py-2.5 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 font-bold rounded-xl text-xs flex items-center justify-center gap-2 transition-colors disabled:opacity-50"
                   >
                     <RefreshCw className={`w-3.5 h-3.5 ${isPersonalizing ? 'animate-spin' : ''}`} />
                     Regenerate Copy with AI
@@ -644,9 +820,9 @@ export default function ModesendDashboard() {
               </div>
 
               {/* Prospect Picker List */}
-              <div className="bg-[#11141b] border border-white/10 rounded-2xl p-5 shadow-xl">
-                <h4 className="text-xs font-semibold text-slate-300 mb-3 uppercase tracking-wider">
-                  Select Prospect to Inspect ({leads.length})
+              <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
+                <h4 className="text-xs font-bold text-slate-700 mb-3 uppercase tracking-wider">
+                  Select Lead to Inspect ({leads.length})
                 </h4>
                 <div className="max-h-64 overflow-y-auto space-y-2 pr-1">
                   {leads.map((l) => (
@@ -655,12 +831,12 @@ export default function ModesendDashboard() {
                       onClick={() => generatePreviewForLead(l, previewStep)}
                       className={`p-2.5 rounded-lg border text-xs cursor-pointer transition-all ${
                         activeLeadForPreview?.id === l.id
-                          ? 'bg-emerald-500/10 border-emerald-500/40 text-white'
-                          : 'bg-[#181d26] border-white/5 text-slate-400 hover:text-slate-200'
+                          ? 'bg-blue-50 border-blue-400 text-blue-900 font-semibold'
+                          : 'bg-slate-50 border-slate-200 text-slate-600 hover:text-slate-900'
                       }`}
                     >
-                      <div className="font-semibold text-slate-200 truncate">{l.name}</div>
-                      <div className="text-[11px] text-emerald-400/80 truncate">{l.email || 'No email found'}</div>
+                      <div className="truncate">{l.name}</div>
+                      <div className="text-[11px] text-blue-700 truncate">{l.email || 'No email found'}</div>
                     </div>
                   ))}
                 </div>
@@ -669,20 +845,20 @@ export default function ModesendDashboard() {
 
             {/* Email Preview Column */}
             <div className="lg:col-span-7">
-              <div className="bg-[#11141b] border border-white/10 rounded-2xl p-6 shadow-xl space-y-4">
-                <div className="flex items-center justify-between border-b border-white/10 pb-3">
+              <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm space-y-4">
+                <div className="flex items-center justify-between border-b border-slate-100 pb-3">
                   <div>
-                    <h3 className="text-base font-semibold text-white flex items-center gap-2">
-                      <Mail className="w-4 h-4 text-emerald-400" />
-                      Live Email Preview
+                    <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                      <Mail className="w-4 h-4 text-blue-600" />
+                      Live Outreach Preview
                     </h3>
-                    <p className="text-xs text-slate-400">
-                      Target: <span className="text-emerald-300">{activeLeadForPreview?.name || 'Select a lead'}</span> ({activeLeadForPreview?.email})
+                    <p className="text-xs text-slate-500">
+                      Prospect: <span className="font-bold text-blue-700">{activeLeadForPreview?.name || 'Select a lead'}</span> ({activeLeadForPreview?.email})
                     </p>
                   </div>
 
                   {/* Step Selector */}
-                  <div className="flex items-center bg-[#181d26] p-1 rounded-lg border border-white/5 text-xs">
+                  <div className="flex items-center bg-slate-100 p-1 rounded-lg border border-slate-200 text-xs font-semibold">
                     {[1, 2, 3].map((step) => (
                       <button
                         key={step}
@@ -691,8 +867,8 @@ export default function ModesendDashboard() {
                         }}
                         className={`px-3 py-1 rounded-md transition-colors ${
                           previewStep === step
-                            ? 'bg-emerald-500 text-slate-950 font-bold'
-                            : 'text-slate-400 hover:text-slate-200'
+                            ? 'bg-blue-600 text-white shadow-xs'
+                            : 'text-slate-600 hover:text-slate-900'
                         }`}
                       >
                         Step {step}
@@ -703,41 +879,41 @@ export default function ModesendDashboard() {
 
                 {/* Subject Field */}
                 <div>
-                  <label className="block text-[11px] text-slate-400 mb-1">Subject Line</label>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Subject Line</label>
                   <input
                     type="text"
                     value={previewSubject}
                     onChange={(e) => setPreviewSubject(e.target.value)}
-                    className="w-full bg-[#181d26] border border-white/10 rounded-lg p-3 text-sm text-white font-medium focus:outline-none"
+                    className="w-full bg-slate-50 border border-slate-300 rounded-lg p-3 text-sm text-slate-900 font-bold focus:outline-none focus:border-blue-600"
                   />
                 </div>
 
                 {/* Body Field */}
                 <div>
-                  <label className="block text-[11px] text-slate-400 mb-1">Email Body (Plain Text / HTML)</label>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Email Body</label>
                   <textarea
                     rows={10}
                     value={previewBody}
                     onChange={(e) => setPreviewBody(e.target.value)}
-                    className="w-full bg-[#181d26] border border-white/10 rounded-xl p-4 text-xs text-slate-200 font-mono leading-relaxed focus:outline-none"
+                    className="w-full bg-slate-50 border border-slate-300 rounded-xl p-4 text-xs text-slate-800 font-mono leading-relaxed focus:outline-none focus:border-blue-600"
                   />
                 </div>
 
                 {/* Test Send Section */}
-                <div className="pt-2 border-t border-white/10 flex flex-col sm:flex-row items-center gap-3 justify-between">
+                <div className="pt-2 border-t border-slate-100 flex flex-col sm:flex-row items-center gap-3 justify-between">
                   <div className="w-full sm:w-auto flex items-center gap-2 flex-1">
                     <input
                       type="email"
                       value={testRecipient}
                       onChange={(e) => setTestRecipient(e.target.value)}
-                      placeholder="Enter your email for test send..."
-                      className="w-full bg-[#181d26] border border-white/10 rounded-lg px-3 py-2 text-xs text-white focus:outline-none"
+                      placeholder="Send real test email to your inbox..."
+                      className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 text-xs text-slate-900 focus:outline-none focus:border-blue-600 font-medium"
                     />
                     <button
                       type="button"
                       onClick={handleSendTest}
                       disabled={isSendingTest || !testRecipient}
-                      className="px-4 py-2 bg-white/10 hover:bg-white/15 text-slate-200 text-xs font-semibold rounded-lg shrink-0 transition-colors disabled:opacity-50"
+                      className="px-4 py-2 bg-slate-800 hover:bg-slate-900 text-white text-xs font-bold rounded-lg shrink-0 transition-colors disabled:opacity-50"
                     >
                       {isSendingTest ? 'Sending...' : 'Send Test'}
                     </button>
@@ -746,7 +922,7 @@ export default function ModesendDashboard() {
                   <button
                     type="button"
                     onClick={() => setActiveTab('campaigns')}
-                    className="w-full sm:w-auto px-5 py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-bold rounded-lg flex items-center justify-center gap-1.5 transition-colors"
+                    className="w-full sm:w-auto px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl flex items-center justify-center gap-1.5 shadow-sm shadow-blue-500/20 transition-colors"
                   >
                     Proceed to Campaign Dispatch
                     <ChevronRight className="w-4 h-4" />
@@ -760,62 +936,62 @@ export default function ModesendDashboard() {
         {/* ================= TAB 3: RESEND CAMPAIGN DISPATCHER ================= */}
         {activeTab === 'campaigns' && (
           <div className="max-w-3xl mx-auto space-y-6">
-            <div className="bg-[#11141b] border border-white/10 rounded-2xl p-8 shadow-xl space-y-6">
+            <div className="bg-white border border-slate-200 rounded-2xl p-8 shadow-sm space-y-6">
               <div>
-                <h3 className="text-xl font-bold text-white flex items-center gap-2">
-                  <Send className="w-5 h-5 text-emerald-400" />
+                <h3 className="text-xl font-bold text-slate-900 flex items-center gap-2">
+                  <Send className="w-5 h-5 text-blue-600" />
                   Launch Cold Outreach via Resend API
                 </h3>
-                <p className="text-xs text-slate-400 mt-1">
+                <p className="text-xs text-slate-500 mt-1">
                   Ready to dispatch personalized sequences to {selectedLeadIds.size} selected prospects.
                 </p>
               </div>
 
               {sendSuccessMessage && (
-                <div className="p-4 bg-emerald-500/10 border border-emerald-500/30 rounded-xl text-xs text-emerald-300 flex items-center gap-2">
-                  <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-800 font-semibold flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
                   {sendSuccessMessage}
                 </div>
               )}
 
               {/* Summary Cards */}
               <div className="grid grid-cols-3 gap-4">
-                <div className="bg-[#181d26] p-4 rounded-xl border border-white/5">
-                  <span className="text-[11px] text-slate-400 block">Total Selected</span>
-                  <span className="text-xl font-bold text-white">{selectedLeadIds.size}</span>
+                <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
+                  <span className="text-xs text-slate-500 block font-medium">Selected Leads</span>
+                  <span className="text-2xl font-bold text-slate-900">{selectedLeadIds.size}</span>
                 </div>
-                <div className="bg-[#181d26] p-4 rounded-xl border border-white/5">
-                  <span className="text-[11px] text-slate-400 block">Sender Name</span>
-                  <span className="text-sm font-semibold text-emerald-400 truncate block">{senderName}</span>
+                <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
+                  <span className="text-xs text-slate-500 block font-medium">Dispatched By</span>
+                  <span className="text-sm font-bold text-blue-700 truncate block mt-1">{currentUser.fullName.split(' (')[0]}</span>
                 </div>
-                <div className="bg-[#181d26] p-4 rounded-xl border border-white/5">
-                  <span className="text-[11px] text-slate-400 block">Delivery Engine</span>
-                  <span className="text-sm font-semibold text-cyan-400 block">Resend API v2</span>
+                <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
+                  <span className="text-xs text-slate-500 block font-medium">Delivery Engine</span>
+                  <span className="text-sm font-bold text-slate-800 block mt-1">Resend v2</span>
                 </div>
               </div>
 
               {/* Dispatch Settings */}
-              <div className="space-y-4 pt-2 border-t border-white/10 text-xs">
+              <div className="space-y-4 pt-2 border-t border-slate-100 text-xs">
                 <div>
-                  <label className="block font-medium text-slate-300 mb-1">From Sender Address</label>
+                  <label className="block font-semibold text-slate-700 mb-1">From Sender Address</label>
                   <input
                     type="text"
                     value={senderEmail}
                     onChange={(e) => setSenderEmail(e.target.value)}
-                    className="w-full bg-[#181d26] border border-white/10 rounded-xl p-3 text-white focus:outline-none"
+                    className="w-full bg-slate-50 border border-slate-300 rounded-xl p-3 text-slate-900 font-medium focus:outline-none focus:border-blue-600"
                   />
-                  <span className="text-[10px] text-slate-400 mt-1 block">
-                    Use a verified sending domain on Resend (e.g. <code>outreach@modewebhost.com</code>) or <code>onboarding@resend.dev</code> for testing.
+                  <span className="text-[11px] text-slate-500 mt-1 block">
+                    Use your verified Resend domain address (e.g. <code>outreach@yourdomain.com</code>).
                   </span>
                 </div>
 
                 <div>
-                  <label className="block font-medium text-slate-300 mb-1">Reply-To Address</label>
+                  <label className="block font-semibold text-slate-700 mb-1">Reply-To Address</label>
                   <input
                     type="text"
                     value={replyToEmail}
                     onChange={(e) => setReplyToEmail(e.target.value)}
-                    className="w-full bg-[#181d26] border border-white/10 rounded-xl p-3 text-white focus:outline-none"
+                    className="w-full bg-slate-50 border border-slate-300 rounded-xl p-3 text-slate-900 font-medium focus:outline-none focus:border-blue-600"
                   />
                 </div>
               </div>
@@ -826,7 +1002,7 @@ export default function ModesendDashboard() {
                   type="button"
                   onClick={handleDispatchCampaign}
                   disabled={isSending || selectedLeadIds.size === 0}
-                  className="w-full py-4 bg-gradient-to-r from-emerald-500 to-cyan-500 hover:from-emerald-400 hover:to-cyan-400 text-slate-950 font-bold rounded-xl text-sm flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/20 transition-all disabled:opacity-50"
+                  className="w-full py-4 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold rounded-xl text-sm flex items-center justify-center gap-2 shadow-lg shadow-blue-500/20 transition-all disabled:opacity-50"
                 >
                   {isSending ? (
                     <>
@@ -845,66 +1021,363 @@ export default function ModesendDashboard() {
           </div>
         )}
 
-        {/* ================= TAB 4: ANALYTICS & TELEMETRY ================= */}
-        {activeTab === 'analytics' && (
-          <div className="space-y-6">
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-              <div className="bg-[#11141b] border border-white/10 p-5 rounded-2xl">
-                <span className="text-xs text-slate-400">Total Leads Ingested</span>
-                <div className="text-2xl font-bold text-white mt-1">{leads.length}</div>
-                <span className="text-[11px] text-emerald-400 mt-2 block">100% Keyword & Location scoped</span>
-              </div>
-              <div className="bg-[#11141b] border border-white/10 p-5 rounded-2xl">
-                <span className="text-xs text-slate-400">Verified Email Rate</span>
-                <div className="text-2xl font-bold text-emerald-400 mt-1">
-                  {leads.length > 0 ? Math.round((totalVerified / leads.length) * 100) : 0}%
+        {/* ================= TAB 4: SUPER ADMIN STAFF ACTIVITY OVERSIGHT ================= */}
+        {activeTab === 'admin_oversight' && (
+          <div className="space-y-8">
+            {/* Header Banner */}
+            <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-blue-950 rounded-2xl p-6 sm:p-8 text-white shadow-md relative overflow-hidden">
+              <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div>
+                  <div className="flex items-center gap-2 text-indigo-300 text-xs font-bold uppercase tracking-wider mb-1">
+                    <Shield className="w-4 h-4" />
+                    Super Admin Console
+                  </div>
+                  <h2 className="text-2xl font-bold">Staff Activity & Outreach Oversight</h2>
+                  <p className="text-xs text-slate-300 mt-1 max-w-xl">
+                    Live telemetry tracking all team member searches, lead prospecting batches, AI email generations, and Resend outreach campaigns.
+                  </p>
                 </div>
-                <span className="text-[11px] text-slate-400 mt-2 block">{totalVerified} reachable mailboxes</span>
-              </div>
-              <div className="bg-[#11141b] border border-white/10 p-5 rounded-2xl">
-                <span className="text-xs text-slate-400">Emails Dispatched</span>
-                <div className="text-2xl font-bold text-cyan-400 mt-1">{totalSent}</div>
-                <span className="text-[11px] text-slate-400 mt-2 block">Via Resend Infrastructure</span>
-              </div>
-              <div className="bg-[#11141b] border border-white/10 p-5 rounded-2xl">
-                <span className="text-xs text-slate-400">Estimated Open Rate</span>
-                <div className="text-2xl font-bold text-purple-400 mt-1">{totalSent > 0 ? '48.2%' : '—'}</div>
-                <span className="text-[11px] text-slate-400 mt-2 block">Based on 1-to-1 personalization</span>
+
+                <button
+                  type="button"
+                  onClick={() => setShowNewStaffModal(true)}
+                  className="px-4 py-2.5 bg-blue-500 hover:bg-blue-400 text-white font-bold rounded-xl text-xs flex items-center gap-2 transition-colors shadow-sm shrink-0"
+                >
+                  <UserPlus className="w-4 h-4" />
+                  Onboard Staff Member
+                </button>
               </div>
             </div>
 
-            {/* Event Activity Table */}
-            <div className="bg-[#11141b] border border-white/10 rounded-2xl p-6 shadow-xl">
-              <h3 className="text-sm font-semibold text-white mb-4">Outreach Activity Log</h3>
+            {/* Team Metrics Leaderboard */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div className="bg-white border border-slate-200 p-5 rounded-2xl shadow-xs">
+                <span className="text-xs font-semibold text-slate-500">Active Staff Accounts</span>
+                <div className="text-2xl font-bold text-slate-900 mt-1">{allUsers.length}</div>
+                <span className="text-[11px] text-blue-600 font-semibold mt-2 block">Organization Members</span>
+              </div>
+
+              <div className="bg-white border border-slate-200 p-5 rounded-2xl shadow-xs">
+                <span className="text-xs font-semibold text-slate-500">Total Team Searches</span>
+                <div className="text-2xl font-bold text-blue-700 mt-1">
+                  {staffStats.reduce((acc, curr) => acc + curr.totalSearches, 0)}
+                </div>
+                <span className="text-[11px] text-slate-500 mt-2 block">Keyword/Location queries</span>
+              </div>
+
+              <div className="bg-white border border-slate-200 p-5 rounded-2xl shadow-xs">
+                <span className="text-xs font-semibold text-slate-500">Total Leads Discovered</span>
+                <div className="text-2xl font-bold text-indigo-700 mt-1">
+                  {staffStats.reduce((acc, curr) => acc + curr.totalLeadsFound, 0)}
+                </div>
+                <span className="text-[11px] text-emerald-600 font-semibold mt-2 block">Across all campaigns</span>
+              </div>
+
+              <div className="bg-white border border-slate-200 p-5 rounded-2xl shadow-xs">
+                <span className="text-xs font-semibold text-slate-500">Total Emails Dispatched</span>
+                <div className="text-2xl font-bold text-emerald-700 mt-1">
+                  {staffStats.reduce((acc, curr) => acc + curr.totalSent, 0)}
+                </div>
+                <span className="text-[11px] text-slate-500 mt-2 block">Via Resend Infrastructure</span>
+              </div>
+            </div>
+
+            {/* Staff Members Breakdown Table */}
+            <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                    <Users className="w-4 h-4 text-blue-600" />
+                    Staff Performance & Workload
+                  </h3>
+                  <p className="text-xs text-slate-500">Activity breakdown by team member</p>
+                </div>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-slate-50 text-slate-600 font-bold border-y border-slate-200">
+                    <tr>
+                      <th className="py-3 px-4">Staff Member</th>
+                      <th className="py-3 px-4">Role</th>
+                      <th className="py-3 px-4 text-center">Searches</th>
+                      <th className="py-3 px-4 text-center">Leads Discovered</th>
+                      <th className="py-3 px-4 text-center">Outreach Sent</th>
+                      <th className="py-3 px-4 text-right">Last Active</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {staffStats.map((staff) => (
+                      <tr key={staff.userId} className="hover:bg-slate-50/80 transition-colors">
+                        <td className="py-3.5 px-4 font-semibold text-slate-900">
+                          <div className="flex items-center gap-2.5">
+                            <div className={`w-7 h-7 rounded-full flex items-center justify-center text-white font-bold text-xs ${
+                              staff.role === 'super_admin' ? 'bg-indigo-600' : 'bg-blue-600'
+                            }`}>
+                              {staff.userName.charAt(0)}
+                            </div>
+                            <div>
+                              <div>{staff.userName}</div>
+                              <div className="text-[11px] text-slate-400 font-normal">{staff.userEmail}</div>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="py-3.5 px-4">
+                          <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${
+                            staff.role === 'super_admin'
+                              ? 'bg-indigo-50 text-indigo-700 border border-indigo-200'
+                              : 'bg-blue-50 text-blue-700 border border-blue-200'
+                          }`}>
+                            {staff.role === 'super_admin' ? 'Super Admin' : 'Staff'}
+                          </span>
+                        </td>
+                        <td className="py-3.5 px-4 text-center font-bold text-slate-800">{staff.totalSearches}</td>
+                        <td className="py-3.5 px-4 text-center font-bold text-indigo-600">{staff.totalLeadsFound}</td>
+                        <td className="py-3.5 px-4 text-center font-bold text-emerald-600">{staff.totalSent}</td>
+                        <td className="py-3.5 px-4 text-right text-slate-500 font-medium">
+                          {new Date(staff.lastActive).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Realtime Team Activity Stream */}
+            <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-3">
+                <div>
+                  <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                    <Activity className="w-4 h-4 text-emerald-600" />
+                    Live Team Audit Trail
+                  </h3>
+                  <p className="text-xs text-slate-500">Real-time stream of all staff operations</p>
+                </div>
+
+                {/* Filter */}
+                <div className="flex items-center gap-2 text-xs">
+                  <span className="text-slate-500 font-medium">Filter by:</span>
+                  <select
+                    value={selectedStaffFilter}
+                    onChange={(e) => setSelectedStaffFilter(e.target.value)}
+                    className="bg-slate-50 border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs text-slate-800 font-medium focus:outline-none"
+                  >
+                    <option value="all">All Staff Members</option>
+                    {allUsers.map((u) => (
+                      <option key={u.id} value={u.id}>
+                        {u.fullName.split(' (')[0]}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* Feed List */}
               <div className="space-y-3">
-                {leads.filter((l) => l.status === 'sent').length === 0 ? (
-                  <p className="text-xs text-slate-400 py-6 text-center">
-                    No emails dispatched yet. Select leads from the Lead Discovery tab to start your first campaign!
-                  </p>
+                {filteredActivities.length === 0 ? (
+                  <p className="text-xs text-slate-400 py-6 text-center">No activity recorded for this filter yet.</p>
                 ) : (
-                  leads
-                    .filter((l) => l.status === 'sent')
-                    .map((l) => (
-                      <div
-                        key={l.id}
-                        className="flex items-center justify-between p-3 bg-[#181d26] rounded-xl border border-white/5 text-xs"
-                      >
-                        <div className="flex items-center gap-3">
-                          <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                          <div>
-                            <span className="font-semibold text-white">{l.name}</span>
-                            <span className="text-slate-400 ml-2">({l.email})</span>
+                  filteredActivities.map((act) => (
+                    <div
+                      key={act.id}
+                      className="p-3.5 rounded-xl border border-slate-200 bg-slate-50/60 flex items-start justify-between gap-3 text-xs"
+                    >
+                      <div className="flex items-start gap-3">
+                        <div className={`p-2 rounded-lg mt-0.5 ${
+                          act.action === 'send_campaign'
+                            ? 'bg-emerald-100 text-emerald-800'
+                            : act.action === 'search_leads'
+                            ? 'bg-blue-100 text-blue-800'
+                            : 'bg-indigo-100 text-indigo-800'
+                        }`}>
+                          {act.action === 'send_campaign' ? (
+                            <Send className="w-3.5 h-3.5" />
+                          ) : act.action === 'search_leads' ? (
+                            <Search className="w-3.5 h-3.5" />
+                          ) : (
+                            <Sparkles className="w-3.5 h-3.5" />
+                          )}
+                        </div>
+
+                        <div>
+                          <div className="font-semibold text-slate-900">
+                            {act.userName.split(' (')[0]}
+                            <span className="ml-2 font-normal text-slate-700">{act.summary}</span>
+                          </div>
+                          <div className="text-[11px] text-slate-400 mt-0.5">
+                            {act.userEmail} • Role: {act.userRole}
                           </div>
                         </div>
-                        <span className="text-[11px] text-slate-400">{l.sentAt || 'Just now'}</span>
                       </div>
-                    ))
+
+                      <span className="text-[11px] text-slate-400 font-medium shrink-0">
+                        {new Date(act.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </span>
+                    </div>
+                  ))
                 )}
               </div>
             </div>
           </div>
         )}
       </main>
+
+      {/* ================= MODAL: SWITCH ACTIVE ACCOUNT ================= */}
+      {showAuthModal && (
+        <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl border border-slate-200 p-6 max-w-md w-full shadow-2xl space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                <Users className="w-4 h-4 text-blue-600" />
+                Switch Active Account
+              </h3>
+              <button
+                onClick={() => setShowAuthModal(false)}
+                className="text-slate-400 hover:text-slate-700 text-sm font-bold"
+              >
+                ✕
+              </button>
+            </div>
+
+            <p className="text-xs text-slate-500">
+              Select an account to simulate staff or administrator workflows:
+            </p>
+
+            <div className="space-y-2">
+              {allUsers.map((u) => {
+                const isSelected = currentUser.id === u.id
+                return (
+                  <div
+                    key={u.id}
+                    onClick={() => handleSwitchUser(u)}
+                    className={`p-3 rounded-xl border text-xs cursor-pointer transition-all flex items-center justify-between ${
+                      isSelected
+                        ? 'bg-blue-50 border-blue-500 shadow-xs'
+                        : 'bg-slate-50 border-slate-200 hover:border-slate-300'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white font-bold text-xs ${
+                        u.role === 'super_admin' ? 'bg-indigo-600' : 'bg-blue-600'
+                      }`}>
+                        {u.fullName.charAt(0)}
+                      </div>
+                      <div>
+                        <div className="font-bold text-slate-900">{u.fullName}</div>
+                        <div className="text-slate-500 text-[11px]">{u.email}</div>
+                      </div>
+                    </div>
+
+                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
+                      u.role === 'super_admin' ? 'bg-indigo-100 text-indigo-700' : 'bg-blue-100 text-blue-700'
+                    }`}>
+                      {u.role === 'super_admin' ? 'Super Admin' : 'Staff'}
+                    </span>
+                  </div>
+                )
+              })}
+            </div>
+
+            <div className="pt-2 border-t border-slate-100 flex items-center justify-between">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowAuthModal(false)
+                  setShowNewStaffModal(true)
+                }}
+                className="text-xs text-blue-600 hover:text-blue-800 font-bold flex items-center gap-1"
+              >
+                <UserPlus className="w-3.5 h-3.5" /> Onboard New Staff
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setShowAuthModal(false)}
+                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded-lg text-xs"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ================= MODAL: ONBOARD NEW STAFF ================= */}
+      {showNewStaffModal && (
+        <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
+          <form
+            onSubmit={handleCreateStaff}
+            className="bg-white rounded-2xl border border-slate-200 p-6 max-w-md w-full shadow-2xl space-y-4"
+          >
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                <UserPlus className="w-4 h-4 text-blue-600" />
+                Onboard New Team Member
+              </h3>
+              <button
+                type="button"
+                onClick={() => setShowNewStaffModal(false)}
+                className="text-slate-400 hover:text-slate-700 text-sm font-bold"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">Full Name & Title</label>
+              <input
+                type="text"
+                required
+                value={newStaffName}
+                onChange={(e) => setNewStaffName(e.target.value)}
+                placeholder="e.g. John Doe (Lead Outbound)"
+                className="w-full bg-slate-50 border border-slate-300 rounded-xl p-3 text-xs text-slate-900 focus:outline-none focus:border-blue-600 font-medium"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">Company Email</label>
+              <input
+                type="email"
+                required
+                value={newStaffEmail}
+                onChange={(e) => setNewStaffEmail(e.target.value)}
+                placeholder="john.doe@modewebhost.com"
+                className="w-full bg-slate-50 border border-slate-300 rounded-xl p-3 text-xs text-slate-900 focus:outline-none focus:border-blue-600 font-medium"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">Account Role</label>
+              <select
+                value={newStaffRole}
+                onChange={(e) => setNewStaffRole(e.target.value as 'staff' | 'super_admin')}
+                className="w-full bg-slate-50 border border-slate-300 rounded-xl p-3 text-xs text-slate-900 focus:outline-none focus:border-blue-600 font-semibold"
+              >
+                <option value="staff">Staff Member (Prospecting & Outreach)</option>
+                <option value="super_admin">Super Administrator (Full Team Oversight)</option>
+              </select>
+            </div>
+
+            <div className="pt-3 border-t border-slate-100 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setShowNewStaffModal(false)}
+                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded-xl text-xs"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-xs shadow-sm shadow-blue-500/20"
+              >
+                Create Account
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
     </div>
   )
 }
