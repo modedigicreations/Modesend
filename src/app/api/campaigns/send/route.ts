@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { sendOutreachEmail } from '@/lib/resend/client'
-import { generatePersonalizedEmail } from '@/lib/ai/personalizer'
+import { generatePersonalizedEmail, formatHtmlEmail } from '@/lib/ai/personalizer'
 import { BusinessLead } from '@/types'
 import { z } from 'zod'
 
@@ -47,12 +47,16 @@ export async function POST(req: NextRequest) {
 
       // Generate personalization if not already generated
       let subject = lead.generatedSubject
-      let bodyHtml = lead.generatedBody
+      let bodyText = lead.generatedBody
+      let bodyHtml = ''
 
-      if (!subject || !bodyHtml) {
+      if (!subject || !bodyText) {
         const generated = await generatePersonalizedEmail(lead, companyOffer, senderName, 1)
         subject = generated.subject
+        bodyText = generated.bodyText
         bodyHtml = generated.bodyHtml
+      } else {
+        bodyHtml = formatHtmlEmail(bodyText)
       }
 
       const sendResult = await sendOutreachEmail({
@@ -61,6 +65,7 @@ export async function POST(req: NextRequest) {
         replyTo: replyToEmail,
         subject,
         bodyHtml,
+        bodyText,
         campaignId,
         leadId: lead.id,
       })

@@ -152,28 +152,33 @@ ${senderName}`
   }
 }
 
-function formatHtmlEmail(bodyText: string): string {
-  const paragraphs = bodyText
-    .split('\n\n')
-    .map((p) => `<p style="margin-bottom: 16px; line-height: 1.6; color: #1e293b; font-size: 15px;">${p.replace(/\n/g, '<br/>')}</p>`)
-    .join('')
+export function formatHtmlEmail(bodyText: string): string {
+  if (!bodyText) return ''
+  
+  if (bodyText.includes('<html') || bodyText.includes('<!DOCTYPE')) {
+    return bodyText
+  }
 
-  return `
-<!DOCTYPE html>
-<html>
+  const normalized = bodyText.replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim()
+
+  const paragraphs = normalized
+    .split(/\n{2,}/)
+    .map((block) => {
+      const formattedLines = block.trim().replace(/\n/g, '<br />')
+      return `<p style="margin: 0 0 16px 0; font-size: 15px; line-height: 1.65; color: #1e293b; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">${formattedLines}</p>`
+    })
+    .join('\n')
+
+  return `<!DOCTYPE html>
+<html lang="en">
 <head>
   <meta charset="utf-8">
-  <style>
-    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; }
-  </style>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
 </head>
-<body style="background-color: #f8fafc; padding: 24px 12px; margin: 0;">
-  <div style="max-width: 580px; margin: 0 auto; background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 32px 28px; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
+<body style="margin: 0; padding: 16px 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 15px; line-height: 1.65; color: #1e293b; background-color: #ffffff;">
+  <div style="max-width: 600px; margin: 0 auto; padding: 0 12px;">
     ${paragraphs}
-    <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 24px 0 16px 0;" />
-    <p style="font-size: 12px; color: #94a3b8; margin: 0;">Sent via Modesend Intelligent Outreach Engine.</p>
   </div>
 </body>
-</html>
-`
+</html>`
 }
