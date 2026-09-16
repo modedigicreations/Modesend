@@ -89,6 +89,8 @@ export default function ModesendDashboard() {
   const [previewBody, setPreviewBody] = useState('')
   const [previewStep, setPreviewStep] = useState(1)
   const [isPersonalizing, setIsPersonalizing] = useState(false)
+  const [campaignStepToDispatch, setCampaignStepToDispatch] = useState<number>(1)
+  const [leadFilterStatus, setLeadFilterStatus] = useState<'all' | 'uncontacted' | 'step1' | 'step2' | 'step3' | 'completed'>('all')
 
   // Resend Dispatcher State
   const [senderName, setSenderName] = useState('Mode Digital Creations Team')
@@ -116,6 +118,34 @@ export default function ModesendDashboard() {
     { label: 'Hospitals in Abuja', kw: 'Hospitals', loc: 'Abuja' },
     { label: 'Hotels in Port Harcourt', kw: 'Hotels', loc: 'Port Harcourt' },
     { label: 'Real Estate in Lagos', kw: 'Real Estate Companies', loc: 'Lagos' },
+  ]
+
+  // Sequence Configuration Metadata
+  const sequenceConfig = [
+    {
+      step: 1,
+      title: 'Step 1: Initial Hook',
+      timing: 'Day 1 (Instant)',
+      description: 'Executive introduction, sector-tailored problem statement & MODECBT / platform overview.',
+    },
+    {
+      step: 2,
+      title: 'Step 2: Feature Deep-Dive',
+      timing: '+3 Days Delay',
+      description: 'Operational problem-solving: CBT entrance exams, auto-grading, tuition fee receipts & 3-min video offer.',
+    },
+    {
+      step: 3,
+      title: 'Step 3: Case Study & Proof',
+      timing: '+7 Days Delay',
+      description: 'Real-world transformation: How partner institutions eliminated fee delays & cut exam marking by 80%.',
+    },
+    {
+      step: 4,
+      title: 'Step 4: Breakup / Permission',
+      timing: '+12 Days Delay',
+      description: 'Courteous closing note: Share free live demo link at modecbt.com and offer to revisit next term.',
+    },
   ]
 
   // Hydrate client-only storage safely on mount
@@ -219,7 +249,7 @@ export default function ModesendDashboard() {
 
   // Delete Staff Account
   const handleDeleteStaffAccount = (user: UserProfile) => {
-    if (confirm(`Are you sure you want to delete the account for ${user.fullName} (${user.email})?`)) {
+    if (confirm(`Are you sure you want to remove ${user.fullName} (${user.email})?`)) {
       const { remainingUsers, nextActive } = deleteUserAccount(user.id)
       setAllUsers(remainingUsers)
       setLocalCurrentUser(nextActive)
@@ -324,7 +354,7 @@ export default function ModesendDashboard() {
     }
   }
 
-  // Generate AI Email Preview
+  // Generate AI Email Preview for Sequence Step
   const generatePreviewForLead = async (lead: BusinessLead, step: number = 1) => {
     setActiveLeadForPreview(lead)
     setPreviewStep(step)
@@ -350,7 +380,7 @@ export default function ModesendDashboard() {
         logStaffActivity(
           currentUser,
           'personalize_copy',
-          `Generated Step ${step} personalized outreach draft for ${lead.name}`,
+          `Generated Sequence Step ${step} draft for ${lead.name}`,
           { leadName: lead.name, step }
         )
         setTeamActivities(getStaffActivities())
@@ -392,17 +422,18 @@ export default function ModesendDashboard() {
           senderName,
           senderEmail,
           replyToEmail,
+          stepNumber: previewStep,
         }),
       })
 
       const data = await res.json()
       if (data.success) {
-        alert(`Test email successfully dispatched to ${testRecipient}!`)
+        alert(`Test email for Step ${previewStep} successfully dispatched to ${testRecipient}!`)
         logStaffActivity(
           currentUser,
           'send_test',
-          `Dispatched test preview email to ${testRecipient}`,
-          { recipient: testRecipient }
+          `Dispatched test Sequence Step ${previewStep} email to ${testRecipient}`,
+          { recipient: testRecipient, step: previewStep }
         )
         setTeamActivities(getStaffActivities())
       } else {
@@ -415,8 +446,8 @@ export default function ModesendDashboard() {
     }
   }
 
-  // Launch Outreach to Selected Leads
-  const handleDispatchCampaign = async () => {
+  // Launch Outreach Sequence Step to Selected Leads
+  const handleDispatchCampaign = async (stepToLaunch: number = campaignStepToDispatch) => {
     const selectedLeads = leads.filter((l) => selectedLeadIds.has(l.id))
     if (selectedLeads.length === 0) return
 
@@ -434,18 +465,32 @@ export default function ModesendDashboard() {
           senderName,
           senderEmail,
           replyToEmail,
+          stepNumber: stepToLaunch,
         }),
       })
 
       const data = await res.json()
       if (data.success) {
         setSendSuccessMessage(
-          `Successfully dispatched ${data.successfulSends} personalized outreach emails via Resend API!`
+          `Successfully dispatched Sequence Step ${stepToLaunch} to ${data.successfulSends} personalized prospects via Resend API!`
         )
         setLeads((prev) =>
           prev.map((lead) => {
             if (selectedLeadIds.has(lead.id)) {
-              return { ...lead, status: 'sent', sentAt: new Date().toLocaleTimeString() }
+              return {
+                ...lead,
+                status: 'sent',
+                currentSequenceStep: stepToLaunch,
+                followUpStatus:
+                  stepToLaunch === 1
+                    ? 'step_1_sent'
+                    : stepToLaunch === 2
+                    ? 'step_2_sent'
+                    : stepToLaunch === 3
+                    ? 'step_3_sent'
+                    : 'completed',
+                sentAt: new Date().toLocaleTimeString(),
+              }
             }
             return lead
           })
@@ -454,8 +499,8 @@ export default function ModesendDashboard() {
         logStaffActivity(
           currentUser,
           'send_campaign',
-          `Launched cold outreach campaign: Sent ${data.successfulSends} emails via Resend`,
-          { count: data.successfulSends, leadsSample: selectedLeads.slice(0, 3).map((l) => l.name) }
+          `Dispatched Sequence Step ${stepToLaunch}: Sent ${data.successfulSends} emails via Resend`,
+          { step: stepToLaunch, count: data.successfulSends, leadsSample: selectedLeads.slice(0, 3).map((l) => l.name) }
         )
 
         setTeamActivities(getStaffActivities())
@@ -906,14 +951,26 @@ export default function ModesendDashboard() {
                             </div>
                           </div>
 
-                          {/* Status Badge */}
-                          {lead.status === 'sent' ? (
+                          {/* Sequence Status Badge */}
+                          {lead.currentSequenceStep === 4 || lead.followUpStatus === 'completed' ? (
+                            <span className="px-2.5 py-0.5 text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full flex items-center gap-1">
+                              <CheckCircle2 className="w-3 h-3" /> Sequence Done
+                            </span>
+                          ) : lead.currentSequenceStep === 3 || lead.followUpStatus === 'step_3_sent' ? (
+                            <span className="px-2.5 py-0.5 text-[11px] font-semibold bg-purple-50 text-purple-700 border border-purple-200 rounded-full flex items-center gap-1">
+                              <Activity className="w-3 h-3" /> Step 3 Sent
+                            </span>
+                          ) : lead.currentSequenceStep === 2 || lead.followUpStatus === 'step_2_sent' ? (
+                            <span className="px-2.5 py-0.5 text-[11px] font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-full flex items-center gap-1">
+                              <Activity className="w-3 h-3" /> Step 2 Sent
+                            </span>
+                          ) : lead.currentSequenceStep === 1 || lead.status === 'sent' || lead.followUpStatus === 'step_1_sent' ? (
                             <span className="px-2.5 py-0.5 text-[11px] font-semibold bg-cyan-50 text-cyan-700 border border-cyan-200 rounded-full flex items-center gap-1">
-                              <CheckCircle2 className="w-3 h-3" /> Sent
+                              <CheckCircle2 className="w-3 h-3" /> Step 1 Sent
                             </span>
                           ) : lead.emailStatus === 'verified' ? (
                             <span className="px-2.5 py-0.5 text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full flex items-center gap-1">
-                              <CheckCircle2 className="w-3 h-3" /> Verified
+                              <CheckCircle2 className="w-3 h-3" /> Ready (Step 1)
                             </span>
                           ) : (
                             <span className="px-2.5 py-0.5 text-[11px] font-semibold bg-amber-50 text-amber-700 border border-amber-200 rounded-full">
@@ -975,17 +1032,24 @@ export default function ModesendDashboard() {
                         </div>
 
                         {/* Action Preview */}
-                        <div className="mt-3 flex items-center justify-end gap-2">
+                        <div className="mt-3 flex items-center justify-between gap-2 border-t border-slate-100 pt-2.5">
+                          <span className="text-[10px] font-semibold text-slate-400">
+                            {lead.currentSequenceStep ? `Seq: Step ${lead.currentSequenceStep}/4` : 'Seq: Not started'}
+                          </span>
                           <button
                             type="button"
                             onClick={(e) => {
                               e.stopPropagation()
-                              generatePreviewForLead(lead, 1)
+                              const nextStep = lead.currentSequenceStep && lead.currentSequenceStep < 4 ? lead.currentSequenceStep + 1 : 1
+                              generatePreviewForLead(lead, nextStep)
                               setActiveTab('personalizer')
                             }}
-                            className="text-xs text-blue-600 hover:text-blue-800 font-bold flex items-center gap-1"
+                            className="text-xs text-blue-600 hover:text-blue-800 font-bold flex items-center gap-1 bg-blue-50 hover:bg-blue-100 px-2.5 py-1 rounded-lg transition-colors"
                           >
-                            <Eye className="w-3.5 h-3.5" /> Preview AI Email
+                            <Eye className="w-3.5 h-3.5" />
+                            {lead.currentSequenceStep && lead.currentSequenceStep < 4
+                              ? `Follow-up (Step ${lead.currentSequenceStep + 1})`
+                              : 'Preview AI Email'}
                           </button>
                         </div>
                       </div>
@@ -1003,26 +1067,27 @@ export default function ModesendDashboard() {
             {/* Offer Setup */}
             <div className="lg:col-span-5 space-y-6">
               <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm space-y-4">
-                <div>
+                <div className="flex items-center justify-between">
                   <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
                     <Sparkles className="w-4 h-4 text-blue-600" />
-                    Company Pitch & Value Proposition
+                    Offer & Sequence Settings
                   </h3>
-                  <p className="text-xs text-slate-500 mt-0.5">
-                    Modesend tailors this core value proposition to each prospect’s operational profile.
-                  </p>
+                  <span className="text-[10px] font-bold uppercase tracking-wider bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full">
+                    Auto-Tailored
+                  </span>
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                    What are you offering?
-                  </label>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Company Value Proposition</label>
                   <textarea
-                    rows={4}
+                    rows={3}
                     value={companyOffer}
                     onChange={(e) => setCompanyOffer(e.target.value)}
-                    className="w-full bg-slate-50 border border-slate-300 rounded-xl p-3 text-xs text-slate-900 focus:outline-none focus:border-blue-600 focus:bg-white focus:ring-2 focus:ring-blue-600/10 font-medium"
+                    className="w-full bg-slate-50 border border-slate-300 rounded-xl p-3 text-xs text-slate-800 focus:outline-none focus:border-blue-600 font-medium"
                   />
+                  <span className="text-[10px] text-slate-400 mt-1 block">
+                    Mode Digital Creations uses sector-specific copywriters automatically (e.g. MODECBT Portal for schools).
+                  </span>
                 </div>
 
                 <div className="grid grid-cols-2 gap-3">
@@ -1056,7 +1121,7 @@ export default function ModesendDashboard() {
                     className="w-full py-2.5 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 font-bold rounded-xl text-xs flex items-center justify-center gap-2 transition-colors disabled:opacity-50"
                   >
                     <RefreshCw className={`w-3.5 h-3.5 ${isPersonalizing ? 'animate-spin' : ''}`} />
-                    Regenerate Copy with AI
+                    Regenerate Step {previewStep} with AI
                   </button>
                 </div>
               </div>
@@ -1071,57 +1136,72 @@ export default function ModesendDashboard() {
                     <div
                       key={l.id}
                       onClick={() => generatePreviewForLead(l, previewStep)}
-                      className={`p-2.5 rounded-lg border text-xs cursor-pointer transition-all ${
+                      className={`p-2.5 rounded-lg border text-xs cursor-pointer transition-all flex items-center justify-between ${
                         activeLeadForPreview?.id === l.id
                           ? 'bg-blue-50 border-blue-400 text-blue-900 font-semibold'
                           : 'bg-slate-50 border-slate-200 text-slate-600 hover:text-slate-900'
                       }`}
                     >
-                      <div className="truncate">{l.name}</div>
-                      <div className="text-[11px] text-blue-700 truncate">{l.email || 'No email found'}</div>
+                      <div className="truncate">
+                        <div className="truncate">{l.name}</div>
+                        <div className="text-[11px] text-blue-700 truncate">{l.email || 'No email found'}</div>
+                      </div>
+                      <span className="text-[10px] font-bold text-slate-400 shrink-0 ml-2">
+                        {l.currentSequenceStep ? `S${l.currentSequenceStep}` : 'S0'}
+                      </span>
                     </div>
                   ))}
                 </div>
               </div>
             </div>
 
-            {/* Email Preview Column */}
+            {/* Email Preview Column with 4-Step Sequence Selector */}
             <div className="lg:col-span-7">
               <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm space-y-4">
-                <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-3">
                   <div>
                     <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
                       <Mail className="w-4 h-4 text-blue-600" />
-                      Live Outreach Preview
+                      Sequence Step Preview
                     </h3>
                     <p className="text-xs text-slate-500">
                       Prospect: <span className="font-bold text-blue-700">{activeLeadForPreview?.name || 'Select a lead'}</span> ({activeLeadForPreview?.email})
                     </p>
                   </div>
 
-                  {/* Step Selector */}
-                  <div className="flex items-center bg-slate-100 p-1 rounded-lg border border-slate-200 text-xs font-semibold">
-                    {[1, 2, 3].map((step) => (
+                  {/* 4-Step Sequence Pills */}
+                  <div className="flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200 text-xs font-semibold gap-1">
+                    {sequenceConfig.map((s) => (
                       <button
-                        key={step}
+                        key={s.step}
                         onClick={() => {
-                          if (activeLeadForPreview) generatePreviewForLead(activeLeadForPreview, step)
+                          if (activeLeadForPreview) generatePreviewForLead(activeLeadForPreview, s.step)
                         }}
-                        className={`px-3 py-1 rounded-md transition-colors ${
-                          previewStep === step
-                            ? 'bg-blue-600 text-white shadow-xs'
-                            : 'text-slate-600 hover:text-slate-900'
+                        className={`px-3 py-1.5 rounded-lg transition-all text-center ${
+                          previewStep === s.step
+                            ? 'bg-blue-600 text-white shadow-xs font-bold'
+                            : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200'
                         }`}
                       >
-                        Step {step}
+                        <div>Step {s.step}</div>
+                        <div className={`text-[9px] ${previewStep === s.step ? 'text-blue-100' : 'text-slate-400'}`}>{s.timing.split(' ')[0]}</div>
                       </button>
                     ))}
                   </div>
                 </div>
 
+                {/* Sequence Step Explanation */}
+                <div className="p-3 bg-blue-50/60 border border-blue-200 rounded-xl text-xs text-blue-900 flex items-start gap-2">
+                  <Flame className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
+                  <div>
+                    <span className="font-bold">{sequenceConfig[previewStep - 1]?.title} ({sequenceConfig[previewStep - 1]?.timing}):</span>{' '}
+                    <span className="text-blue-800">{sequenceConfig[previewStep - 1]?.description}</span>
+                  </div>
+                </div>
+
                 {/* Subject Field */}
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">Subject Line</label>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Subject Line (Step {previewStep})</label>
                   <input
                     type="text"
                     value={previewSubject}
@@ -1134,7 +1214,7 @@ export default function ModesendDashboard() {
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 mb-1">Email Body</label>
                   <textarea
-                    rows={10}
+                    rows={11}
                     value={previewBody}
                     onChange={(e) => setPreviewBody(e.target.value)}
                     className="w-full bg-slate-50 border border-slate-300 rounded-xl p-4 text-xs text-slate-800 font-mono leading-relaxed focus:outline-none focus:border-blue-600"
@@ -1157,13 +1237,16 @@ export default function ModesendDashboard() {
                       disabled={isSendingTest || !testRecipient}
                       className="px-4 py-2 bg-slate-800 hover:bg-slate-900 text-white text-xs font-bold rounded-lg shrink-0 transition-colors disabled:opacity-50"
                     >
-                      {isSendingTest ? 'Sending...' : 'Send Test'}
+                      {isSendingTest ? 'Sending...' : `Test Step ${previewStep}`}
                     </button>
                   </div>
 
                   <button
                     type="button"
-                    onClick={() => setActiveTab('campaigns')}
+                    onClick={() => {
+                      setCampaignStepToDispatch(previewStep)
+                      setActiveTab('campaigns')
+                    }}
                     className="w-full sm:w-auto px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl flex items-center justify-center gap-1.5 shadow-sm shadow-blue-500/20 transition-colors"
                   >
                     Proceed to Campaign Dispatch
@@ -1175,17 +1258,17 @@ export default function ModesendDashboard() {
           </div>
         )}
 
-        {/* ================= TAB 3: RESEND CAMPAIGN DISPATCHER ================= */}
+        {/* ================= TAB 3: RESEND CAMPAIGN DISPATCHER & SEQUENCE ROADMAP ================= */}
         {activeTab === 'campaigns' && (
-          <div className="max-w-3xl mx-auto space-y-6">
+          <div className="max-w-4xl mx-auto space-y-6">
             <div className="bg-white border border-slate-200 rounded-2xl p-8 shadow-sm space-y-6">
               <div>
                 <h3 className="text-xl font-bold text-slate-900 flex items-center gap-2">
                   <Send className="w-5 h-5 text-blue-600" />
-                  Launch Cold Outreach via Resend API
+                  Follow-Up Sequence Campaign Dispatcher
                 </h3>
                 <p className="text-xs text-slate-500 mt-1">
-                  Ready to dispatch personalized sequences to {selectedLeadIds.size} selected prospects.
+                  Dispatch targeted sequence stages to {selectedLeadIds.size} selected prospects via Resend API.
                 </p>
               </div>
 
@@ -1196,10 +1279,44 @@ export default function ModesendDashboard() {
                 </div>
               )}
 
+              {/* 4-Step Sequence Stage Selector */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-2 uppercase tracking-wider">
+                  Select Sequence Stage to Launch
+                </label>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                  {sequenceConfig.map((s) => {
+                    const isSelected = campaignStepToDispatch === s.step
+                    return (
+                      <div
+                        key={s.step}
+                        onClick={() => setCampaignStepToDispatch(s.step)}
+                        className={`p-4 rounded-xl border cursor-pointer transition-all ${
+                          isSelected
+                            ? 'bg-blue-50 border-blue-500 shadow-sm shadow-blue-500/10'
+                            : 'bg-slate-50 border-slate-200 hover:border-slate-300'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between mb-1">
+                          <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full ${
+                            isSelected ? 'bg-blue-600 text-white' : 'bg-slate-200 text-slate-700'
+                          }`}>
+                            {s.timing}
+                          </span>
+                          <span className="text-xs font-bold text-slate-400">#{s.step}</span>
+                        </div>
+                        <h4 className="text-xs font-bold text-slate-900 mt-2">{s.title}</h4>
+                        <p className="text-[11px] text-slate-500 mt-1 leading-normal line-clamp-2">{s.description}</p>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+
               {/* Summary Cards */}
               <div className="grid grid-cols-3 gap-4">
                 <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
-                  <span className="text-xs text-slate-500 block font-medium">Selected Leads</span>
+                  <span className="text-xs text-slate-500 block font-medium">Target Prospects</span>
                   <span className="text-2xl font-bold text-slate-900">{selectedLeadIds.size}</span>
                 </div>
                 <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
@@ -1207,8 +1324,8 @@ export default function ModesendDashboard() {
                   <span className="text-sm font-bold text-blue-700 truncate block mt-1">{currentUser.fullName.split(' (')[0]}</span>
                 </div>
                 <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
-                  <span className="text-xs text-slate-500 block font-medium">Delivery Engine</span>
-                  <span className="text-sm font-bold text-slate-800 block mt-1">Resend v2</span>
+                  <span className="text-xs text-slate-500 block font-medium">Target Stage</span>
+                  <span className="text-sm font-bold text-slate-800 block mt-1">Step {campaignStepToDispatch} Sequence</span>
                 </div>
               </div>
 
@@ -1223,7 +1340,7 @@ export default function ModesendDashboard() {
                     className="w-full bg-slate-50 border border-slate-300 rounded-xl p-3 text-slate-900 font-medium focus:outline-none focus:border-blue-600"
                   />
                   <span className="text-[11px] text-slate-500 mt-1 block">
-                    Use your verified Resend domain address (e.g. <code>outreach@yourdomain.com</code>).
+                    Verified sender: <code>info@modecbt.com</code>
                   </span>
                 </div>
 
@@ -1242,19 +1359,19 @@ export default function ModesendDashboard() {
               <div className="pt-4">
                 <button
                   type="button"
-                  onClick={handleDispatchCampaign}
+                  onClick={() => handleDispatchCampaign(campaignStepToDispatch)}
                   disabled={isSending || selectedLeadIds.size === 0}
                   className="w-full py-4 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold rounded-xl text-sm flex items-center justify-center gap-2 shadow-lg shadow-blue-500/20 transition-all disabled:opacity-50"
                 >
                   {isSending ? (
                     <>
                       <RefreshCw className="w-5 h-5 animate-spin" />
-                      Dispatching Outreach Batch...
+                      Dispatching Sequence Step {campaignStepToDispatch}...
                     </>
                   ) : (
                     <>
                       <Send className="w-5 h-5" />
-                      Dispatch Campaign to {selectedLeadIds.size} Prospects
+                      Dispatch Step {campaignStepToDispatch} Outreach to {selectedLeadIds.size} Prospects
                     </>
                   )}
                 </button>

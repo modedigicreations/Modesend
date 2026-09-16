@@ -70,6 +70,17 @@ export interface BusinessLead {
     description?: string
     mxValid?: boolean
   }
+  currentSequenceStep?: number
+  maxSequenceSteps?: number
+  sequenceHistory?: Array<{
+    step: number
+    subject: string
+    body: string
+    sentAt: string
+    resendId?: string
+  }>
+  nextFollowUpDue?: string
+  followUpStatus?: 'not_started' | 'step_1_sent' | 'step_2_sent' | 'step_3_sent' | 'step_4_sent' | 'completed'
   status: LeadStatus
   generatedSubject?: string
   generatedBody?: string
@@ -86,6 +97,8 @@ export interface BusinessLead {
 export interface SequenceStep {
   stepNumber: number
   delayDays: number
+  name: string
+  description: string
   subjectTemplate: string
   bodyTemplate: string
 }

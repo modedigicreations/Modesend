@@ -1,4 +1,4 @@
-import { BusinessLead } from '@/types'
+import { BusinessLead, SequenceStep } from '@/types'
 
 export interface PersonalizationResult {
   subject: string
@@ -12,6 +12,41 @@ export const COMPANY_SIGNATURE = `Best regards,
 Mode Digital Creations Outreach Team
 Tel: 08065180018
 Email: info@modecbt.com`
+
+export const DEFAULT_SEQUENCE_STEPS: SequenceStep[] = [
+  {
+    stepNumber: 1,
+    delayDays: 0,
+    name: 'Initial Value Hook',
+    description: 'Executive introduction, sector-tailored problem statement & high-level solution pitch.',
+    subjectTemplate: "Quick question regarding {{name}}'s digital systems",
+    bodyTemplate: '',
+  },
+  {
+    stepNumber: 2,
+    delayDays: 3,
+    name: 'Feature Spotlight & Low-Friction Demo',
+    description: 'Deep-dive into operational features (e.g. CBT exams, fee automation, direct booking) with low-friction CTA.',
+    subjectTemplate: 'Re: Streamlining daily operations at {{name}}',
+    bodyTemplate: '',
+  },
+  {
+    stepNumber: 3,
+    delayDays: 7,
+    name: 'Case Study & Social Proof',
+    description: 'Real-world transformation story showing how similar institutions cut administrative time by 80%.',
+    subjectTemplate: 'Case Study: How partner institutions in {{location}} automated workflows',
+    bodyTemplate: '',
+  },
+  {
+    stepNumber: 4,
+    delayDays: 12,
+    name: 'Permission to Close / Breakup',
+    description: 'Courteous final follow-up sharing a free self-serve resource and offering to revisit next term/quarter.',
+    subjectTemplate: 'Permission to close your file? ({{name}})',
+    bodyTemplate: '',
+  },
+]
 
 type IndustrySector = 'schools' | 'hotels' | 'hospitals' | 'law' | 'realestate' | 'tech' | 'logistics' | 'general'
 
@@ -81,7 +116,7 @@ export function getSectorPitch(sector: IndustrySector, locCity: string, customOf
 }
 
 /**
- * Returns dynamic, high-converting, scroll-stopping subject lines
+ * Returns dynamic, high-converting, scroll-stopping subject lines for all 4 sequence steps
  */
 function getCatchySubject(shortName: string, sector: IndustrySector, stepNumber: number): string {
   if (stepNumber === 1) {
@@ -111,11 +146,33 @@ function getCatchySubject(shortName: string, sector: IndustrySector, stepNumber:
         return `Re: Patient scheduling idea for ${shortName}`
       case 'law':
         return `Re: Digital client portal for ${shortName}`
+      case 'realestate':
+        return `Re: Automated property viewing leads for ${shortName}`
       default:
         return `Re: Quick thought for ${shortName} this week`
     }
+  } else if (stepNumber === 3) {
+    switch (sector) {
+      case 'schools':
+        return `Case study: How schools cut exam marking & fee reconciliation by 80%`
+      case 'hotels':
+        return `Case study: Increasing direct guest bookings by 35% without OTA fees`
+      case 'hospitals':
+        return `Case study: Eliminating waiting room queues with automated patient booking`
+      case 'law':
+        return `Case study: Accelerating client intake & retainer payments`
+      default:
+        return `Case study: Streamlining client onboarding & digital revenue`
+    }
   } else {
-    return `Final check-in: MODECBT & digital systems for ${shortName}`
+    switch (sector) {
+      case 'schools':
+        return `Permission to close your file? (MODECBT Portal for ${shortName})`
+      case 'hotels':
+        return `Permission to close your file? (Direct reservations for ${shortName})`
+      default:
+        return `Permission to close your file? (${shortName})`
+    }
   }
 }
 
@@ -144,6 +201,13 @@ Email: info@modecbt.com`
 
   if (geminiApiKey) {
     try {
+      const stepDescriptions = [
+        'Step 1: Initial Value Hook (Establish executive relevance, introduce MODECBT Portal & School Management System, concise low-friction ask).',
+        'Step 2: Feature Deep-Dive & Low Friction Demo (Highlight CBT entrance exam automation, instant result sheets, parent SMS fee receipts, offer 3-min video walkthrough).',
+        'Step 3: Social Proof & Case Study (Share how partner institutions cut admin workload and eliminated fee reconciliation errors by 80%).',
+        'Step 4: Polite Breakup / Permission to Close (Low-pressure courtesy note sharing a free demo link and offering to revisit next term).',
+      ]
+
       const prompt = `
 You are an expert B2B cold outreach copywriter for Mode Digital Creations. Write a highly personalized, compelling, scroll-stopping outreach email.
 
@@ -161,19 +225,18 @@ ${
     : ''
 }
 
-Sequence Step: Step ${stepNumber} (1 = Initial Value Hook, 2 = 3-Day Polite Follow-up, 3 = Case Study / Low friction CTA)
+Email Sequence Context:
+${stepDescriptions[Math.min(stepNumber - 1, 3)]}
 Sender Name: ${senderName}
 
 Required Signature (You MUST append this exact signature):
 ${signatureText}
 
 Guidelines:
-1. Subject Line: Catchy, scroll-stopping, high open rate, customized with prospect name (${shortName}) and their sector focus (${sector === 'schools' ? 'MODECBT & School Portal' : sector}).
-2. Opening: Greet them with their name (${shortName}) and acknowledge their leading status in ${locCity}.
-3. The Pitch: Focus sharply on ${sector === 'schools' ? 'MODECBT Portal & School Management System' : sectorPitch}.
-4. Low Friction CTA: e.g. "Would you be open to a quick 3-minute demo or brief video walkthrough this week?"
-5. Permanent Signature: Include the exact signature provided above with Tel: 08065180018 and Email: info@modecbt.com.
-6. Tone: Executive, concise, warm, professional (under 130 words).
+1. Subject Line: Catchy, scroll-stopping, tailored to Step ${stepNumber} and prospect (${shortName}).
+2. Body Content: Strictly adhere to Step ${stepNumber} purpose without repeating earlier intro steps.
+3. Permanent Signature: Include the exact signature provided above with Tel: 08065180018 and Email: info@modecbt.com.
+4. Tone: Executive, concise, warm, professional (under 130 words).
 
 Respond ONLY with valid JSON:
 {
@@ -221,7 +284,7 @@ Respond ONLY with valid JSON:
 }
 
 /**
- * Algorithmic copywriting engine producing sector-tailored email copy with permanent signature
+ * Algorithmic copywriting engine producing sector-tailored email copy for all 4 sequence steps
  */
 function generateAlgorithmicEmail(
   lead: BusinessLead,
@@ -278,11 +341,12 @@ ${signature}`
 
 Following up on my previous note regarding ${shortName}.
 
-I know how busy academic terms can get, so I wanted to share a quick overview of how our MODECBT Portal and School Management System directly support school administrators:
+I know how busy academic terms can get, so I wanted to highlight two specific operational bottlenecks our platform solves for school administrators:
 
-${sectorPitch}
+1. Entrance & Termly CBT Exams: Upload question banks and conduct computer-based assessments with zero paper printing costs and instant automated scoring.
+2. Direct Tuition Fee Collection: Parents pay securely via bank transfer or card, and payments reconcile automatically into your account with instant receipts.
 
-If this sounds relevant for ${shortName}, what does your calendar look like for a brief 5-minute call on Thursday or Friday?
+Would your team be open to a quick 3-minute video overview on Thursday or Friday?
 
 ${signature}`
     } else {
@@ -290,25 +354,61 @@ ${signature}`
 
 Following up on my previous note regarding ${shortName}.
 
-I know how busy your schedule can get, so I wanted to share a quick idea on how we can directly support your team:
+I know how busy your schedule can get, so I wanted to share a quick idea on how our solution directly supports your operational goals:
 
 ${sectorPitch}
 
-If this sounds relevant, what does your calendar look like for a brief 5-minute call on Thursday or Friday?
+If this sounds relevant for ${shortName}, what does your calendar look like for a brief 5-minute call on Thursday or Friday?
+
+${signature}`
+    }
+  } else if (stepNumber === 3) {
+    if (sector === 'schools') {
+      bodyText = `Hi ${shortName} Team,
+
+I wanted to share a quick case study that might be relevant for ${shortName}.
+
+Recently, educational institutions running our MODECBT Portal and School Management System achieved:
+• 85% reduction in exam grading and result collation time across all classes.
+• 100% automated fee reconciliation, completely eliminating manual bank teller verification delays.
+• 24/7 parent portal access for termly report cards and attendance tracking.
+
+We would love to share a 3-minute customized demonstration tailored specifically to ${shortName}'s curriculum and workflow.
+
+Would you be against a quick walkthrough this week?
+
+${signature}`
+    } else {
+      bodyText = `Hi ${shortName} Team,
+
+I wanted to share a quick case study on how we helped similar organizations in your sector streamline daily operations and accelerate client conversions.
+
+By replacing manual processes with our customized platform, our clients reduced operational delays by over 70% while improving customer satisfaction.
+
+Would you be open to seeing a brief 3-minute walkthrough of how this would look for ${shortName}?
 
 ${signature}`
     }
   } else {
-    bodyText = `Hi ${shortName} Team,
+    if (sector === 'schools') {
+      bodyText = `Hi ${shortName} Team,
+
+I wanted to send one last quick note in case our previous messages were missed.
+
+I understand the timing might not be ideal right now. You can test out our live MODECBT demo anytime at https://modecbt.com.
+
+If your team ever needs assistance setting up Computer-Based Testing or automating fee management for ${shortName} next term, feel free to reach back out!
+
+${signature}`
+    } else {
+      bodyText = `Hi ${shortName} Team,
 
 I wanted to send one last quick note in case my earlier messages were missed.
 
-We would love the opportunity to share a customized case study showing how we deliver:
-"${sectorPitch}"
-
-If the timing is not right, no problem at all. Should your team ever need support with modern digital systems or CBT exam portals in ${locCity}, feel free to keep us in mind!
+I know how busy things are, so I will close your file for now. Should ${shortName} ever need support with modern digital systems in ${locCity}, feel free to keep us in mind!
 
 ${signature}`
+    }
   }
 
   return {
