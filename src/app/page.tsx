@@ -28,6 +28,8 @@ import {
   Edit2,
   Trash2,
   Lock,
+  Save,
+  Download,
 } from 'lucide-react'
 import { BusinessLead, UserProfile, StaffActivity, StaffMemberStats } from '@/types'
 import {
@@ -158,7 +160,58 @@ export default function ModesendDashboard() {
     setSenderName(user.fullName.split(' (')[0])
     setTeamActivities(getStaffActivities())
     setStaffStats(getStaffPerformanceStats())
+
+    // Restore saved leads from localStorage so page refresh or clicking out never loses leads
+    try {
+      const savedLeadsStr = localStorage.getItem('modesend_discovered_leads')
+      if (savedLeadsStr) {
+        const savedLeads: BusinessLead[] = JSON.parse(savedLeadsStr)
+        if (Array.isArray(savedLeads) && savedLeads.length > 0) {
+          setLeads(savedLeads)
+          const savedSelectedStr = localStorage.getItem('modesend_selected_lead_ids')
+          if (savedSelectedStr) {
+            try {
+              const ids: string[] = JSON.parse(savedSelectedStr)
+              setSelectedLeadIds(new Set(ids))
+            } catch {}
+          } else {
+            const initialSelected = new Set<string>()
+            savedLeads.forEach((l: BusinessLead) => {
+              if (l.email) initialSelected.add(l.id)
+            })
+            setSelectedLeadIds(initialSelected)
+          }
+          generatePreviewForLead(savedLeads[0], 1)
+        }
+      }
+      const savedKw = localStorage.getItem('modesend_keyword')
+      if (savedKw) setKeyword(savedKw)
+      const savedLoc = localStorage.getItem('modesend_location')
+      if (savedLoc) setLocation(savedLoc)
+    } catch (err) {
+      console.error('Error hydrating saved leads:', err)
+    }
   }, [])
+
+  // Auto-save discovered leads whenever they change
+  useEffect(() => {
+    if (!mounted) return
+    if (leads.length > 0) {
+      localStorage.setItem('modesend_discovered_leads', JSON.stringify(leads))
+      localStorage.setItem('modesend_selected_lead_ids', JSON.stringify(Array.from(selectedLeadIds)))
+    }
+  }, [leads, selectedLeadIds, mounted])
+
+  // Auto-save search keyword and location
+  useEffect(() => {
+    if (!mounted) return
+    if (keyword) localStorage.setItem('modesend_keyword', keyword)
+  }, [keyword, mounted])
+
+  useEffect(() => {
+    if (!mounted) return
+    if (location) localStorage.setItem('modesend_location', location)
+  }, [location, mounted])
 
   // Handle Login
   const handleLoginSubmit = (e: React.FormEvent) => {
@@ -351,6 +404,60 @@ export default function ModesendDashboard() {
       setSelectedLeadIds(new Set())
     } else {
       setSelectedLeadIds(new Set(leads.map((l) => l.id)))
+    }
+  }
+
+  // Save Leads Manually & Feedback
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saved'>('idle')
+
+  const handleSaveLeadsManually = () => {
+    if (leads.length === 0) return
+    localStorage.setItem('modesend_discovered_leads', JSON.stringify(leads))
+    localStorage.setItem('modesend_selected_lead_ids', JSON.stringify(Array.from(selectedLeadIds)))
+    localStorage.setItem('modesend_keyword', keyword)
+    localStorage.setItem('modesend_location', location)
+    setSaveStatus('saved')
+    setTimeout(() => setSaveStatus('idle'), 3000)
+  }
+
+  // Export Discovered Leads as CSV
+  const handleExportCSV = () => {
+    if (leads.length === 0) return
+    const headers = ['Business Name', 'Category', 'Address', 'Phone', 'Website', 'Email', 'Email Status', 'Sequence Step', 'Status']
+    const rows = leads.map(l => [
+      `"${(l.name || '').replace(/"/g, '""')}"`,
+      `"${(l.category || '').replace(/"/g, '""')}"`,
+      `"${(l.address || '').replace(/"/g, '""')}"`,
+      `"${(l.phone || '').replace(/"/g, '""')}"`,
+      `"${(l.website || '').replace(/"/g, '""')}"`,
+      `"${(l.email || '').replace(/"/g, '""')}"`,
+      `"${(l.emailStatus || '').replace(/"/g, '""')}"`,
+      `"Step ${l.currentSequenceStep || 1}"`,
+      `"${(l.status || '').replace(/"/g, '""')}"`
+    ])
+
+    const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n')
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.setAttribute('download', `leads-${location.replace(/\s+/g, '-').toLowerCase()}-${new Date().toISOString().split('T')[0]}.csv`)
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    URL.revokeObjectURL(url)
+  }
+
+  // Clear Saved Leads with Confirmation
+  const handleClearLeads = () => {
+    if (window.confirm('Are you sure you want to clear all discovered leads? You will need to run a new search to discover them again.')) {
+      setLeads([])
+      setSelectedLeadIds(new Set())
+      setActiveLeadForPreview(null)
+      setPreviewSubject('')
+      setPreviewBody('')
+      localStorage.removeItem('modesend_discovered_leads')
+      localStorage.removeItem('modesend_selected_lead_ids')
     }
   }
 
@@ -896,7 +1003,33 @@ export default function ModesendDashboard() {
                     </p>
                   </div>
 
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-[11px] font-medium text-emerald-600 bg-emerald-50 border border-emerald-200/70 px-2 py-1.5 rounded-lg flex items-center gap-1">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
+                      {saveStatus === 'saved' ? 'Saved to Browser!' : 'Auto-Saved'}
+                    </span>
+                    <button
+                      onClick={handleSaveLeadsManually}
+                      className="text-xs px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-lg shadow-sm transition-colors flex items-center gap-1.5"
+                      title="Explicitly save leads to browser local storage so refresh never loses them"
+                    >
+                      <Save className="w-3.5 h-3.5" />
+                      {saveStatus === 'saved' ? 'Saved!' : 'Save Leads'}
+                    </button>
+                    <button
+                      onClick={handleExportCSV}
+                      className="text-xs px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded-lg border border-slate-200 transition-colors flex items-center gap-1.5"
+                      title="Download leads as a CSV file to keep permanently"
+                    >
+                      <Download className="w-3.5 h-3.5" /> Export CSV
+                    </button>
+                    <button
+                      onClick={handleClearLeads}
+                      className="text-xs px-3 py-2 bg-rose-50 hover:bg-rose-100 text-rose-600 font-semibold rounded-lg border border-rose-200 transition-colors flex items-center gap-1.5"
+                      title="Clear saved leads and start fresh"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" /> Clear
+                    </button>
                     <button
                       onClick={toggleSelectAll}
                       className="text-xs px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded-lg border border-slate-200 transition-colors"
